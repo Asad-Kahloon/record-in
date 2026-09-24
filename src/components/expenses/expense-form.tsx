@@ -10,9 +10,10 @@ import { DeleteEntryButton } from "@/components/delete-entry-button";
 import { formatTimeLeft, useEditWindow } from "@/components/editable-badge";
 import { LockConfirm, LockHint, rememberSkipLockReminder, shouldShowLockReminder } from "@/components/lock-confirm";
 import { useAppConfig, useMoney } from "@/components/providers/app-config";
+import { useEntrySheets } from "@/components/providers/entry-sheets";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -43,6 +44,7 @@ export function ExpenseForm({
   const isEdit = Boolean(expense);
   const config = useAppConfig();
   const money = useMoney();
+  const { available } = useEntrySheets();
   const today = todayIn(config.timeZone);
   const yesterday = addDays(today, -1);
 
@@ -79,6 +81,14 @@ export function ExpenseForm({
     if (values.spentOn > today) {
       setErrors({ spentOn: "The date can't be in the future" });
       return false;
+    }
+    // Money can only go out if it is there. Other currencies are checked on the server.
+    if (values.currency === config.currency) {
+      const allowance = available + (expense?.base_amount ?? 0);
+      if (Number(values.amount) > allowance) {
+        setErrors({ amount: `That is more than the ${money(allowance)} you have available` });
+        return false;
+      }
     }
     return true;
   };
@@ -199,6 +209,9 @@ export function ExpenseForm({
             disabled={locked}
             autoFocus={!isEdit}
           />
+          <FieldDescription>
+            Available to spend: <span className="money font-medium text-foreground">{money(available)}</span>
+          </FieldDescription>
           <FieldError>{errors.amount}</FieldError>
         </Field>
 

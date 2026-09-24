@@ -74,7 +74,7 @@ export function WelcomeFlow({ name, suggested, locale }: { name: string; suggest
     <div className="space-y-8">
       <div className="text-center">
         <p className="text-sm font-semibold text-brand">Welcome, {name}</p>
-        <h1 className="sr-only">Welcome to Ledger</h1>
+        <h1 className="sr-only">Welcome to RecordIn</h1>
       </div>
 
       <Carousel setApi={setApi} opts={{ loop: false }} className="w-full">

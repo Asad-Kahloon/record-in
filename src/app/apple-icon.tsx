@@ -17,18 +17,10 @@ export default function AppleIcon() {
           background: "linear-gradient(135deg, #9085e9 0%, #5a4bd1 100%)",
         }}
       >
-        <svg
-          width="104"
-          height="104"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#0d0b1f"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M4 19h16" />
-          <path d="M6 15l4-4 3 3 5-6" />
+        <svg width="112" height="112" viewBox="0 0 24 24" fill="none" stroke="#120d33" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M12 7.5v6.5" />
+          <path d="m8.75 10.75 3.25 3.25 3.25-3.25" />
         </svg>
       </div>
     ),

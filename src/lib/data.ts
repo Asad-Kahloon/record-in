@@ -10,6 +10,7 @@ import type {
   AccountSummary,
   AdminOverview,
   AdminUserRow,
+  Balance,
   Budget,
   Category,
   CategoryTotal,
@@ -81,6 +82,9 @@ function normalizeMonthSummary(raw: MonthSummary): MonthSummary {
     expense_total: num(raw.expense_total),
     expense_count: num(raw.expense_count),
     active_days: num(raw.active_days),
+    opening_balance: num(raw.opening_balance),
+    closing_balance: num(raw.closing_balance),
+    available_balance: num(raw.available_balance),
     prev_income_total: num(raw.prev_income_total),
     prev_expense_total: num(raw.prev_expense_total),
     largest_expense: largest(raw.largest_expense),
@@ -93,6 +97,7 @@ function normalizeMonthSummary(raw: MonthSummary): MonthSummary {
 function normalizeOverall(raw: OverallSummary): OverallSummary {
   return {
     ...raw,
+    available: num(raw.available),
     income_total: num(raw.income_total),
     expense_total: num(raw.expense_total),
     income_count: num(raw.income_count),
@@ -273,4 +278,17 @@ export const getDebtSummary = cache(async (userId: string | null): Promise<DebtS
 export const getBudgets = cache(async (userId: string | null): Promise<Budget[]> => {
   const rows = await rpc<Budget[]>("list_budgets", { p_user_id: userId });
   return (rows ?? []).map((budget) => ({ ...budget, amount: num(budget.amount) }));
+});
+
+/** Money available to spend right now (all months, including borrowed and lent). */
+export const getBalance = cache(async (userId: string | null): Promise<Balance> => {
+  const raw = await rpc<Balance>("get_balance", { p_user_id: userId });
+  return {
+    available: num(raw.available),
+    income_total: num(raw.income_total),
+    expense_total: num(raw.expense_total),
+    borrowed_pending: num(raw.borrowed_pending),
+    lent_pending: num(raw.lent_pending),
+    currency: raw.currency ?? null,
+  };
 });

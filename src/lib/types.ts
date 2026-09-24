@@ -92,6 +92,16 @@ export interface Budget {
   updated_at: string;
 }
 
+/** What is actually available to spend, across all months. */
+export interface Balance {
+  available: number;
+  income_total: number;
+  expense_total: number;
+  borrowed_pending: number;
+  lent_pending: number;
+  currency: string | null;
+}
+
 export interface Category {
   slug: string;
   name: string;
@@ -130,6 +140,12 @@ export interface LargestExpense {
 export interface MonthSummary {
   month: string;
   currency: string | null;
+  /** Money carried in from earlier months. */
+  opening_balance: number;
+  /** What was left at the end of this month. */
+  closing_balance: number;
+  /** Money available right now, across all months. */
+  available_balance: number;
   income_total: number;
   income_count: number;
   expense_total: number;
@@ -152,6 +168,7 @@ export interface MonthTotal {
 
 export interface OverallSummary {
   currency: string | null;
+  available: number;
   income_total: number;
   expense_total: number;
   income_count: number;

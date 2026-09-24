@@ -4,7 +4,8 @@ import { cookies, headers } from "next/headers";
 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { APP_DESCRIPTION, APP_NAME, PRIVACY_COOKIE } from "@/lib/constants";
+import { APP_DESCRIPTION, APP_KEYWORDS, APP_NAME, APP_TAGLINE, PRIVACY_COOKIE } from "@/lib/constants";
+import { env } from "@/lib/env";
 import { cn } from "@/lib/utils";
 
 import "./globals.css";
@@ -12,14 +13,28 @@ import "./globals.css";
 const sans = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-sans" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
+const siteUrl = env.siteUrl;
+const title = `${APP_NAME} — ${APP_TAGLINE}`;
+
 export const metadata: Metadata = {
-  title: { default: APP_NAME, template: `%s · ${APP_NAME}` },
+  metadataBase: new URL(siteUrl),
+  title: { default: title, template: `%s · ${APP_NAME}` },
   description: APP_DESCRIPTION,
+  keywords: APP_KEYWORDS,
   applicationName: APP_NAME,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: APP_NAME,
+    title,
+    description: APP_DESCRIPTION,
+    locale: "en_US",
+  },
+  twitter: { card: "summary_large_image", title, description: APP_DESCRIPTION },
   appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false, email: false, address: false },
-  // Private app: keep it out of search engines.
-  robots: { index: false, follow: false },
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {

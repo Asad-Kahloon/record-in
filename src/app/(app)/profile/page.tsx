@@ -56,9 +56,7 @@ export default async function ProfilePage() {
                   <ShieldCheckIcon />
                   Super admin
                 </Badge>
-              ) : (
-                <Badge variant="outline">Member</Badge>
-              )}
+              ) : null}
               {providers.includes("google") ? (
                 <Badge variant="secondary">
                   <GoogleMark />

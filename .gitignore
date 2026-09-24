@@ -23,3 +23,6 @@ npm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Output of the verification build (NEXT_DIST_DIR)
+/.next-verify

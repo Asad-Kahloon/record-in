@@ -11,8 +11,8 @@ export interface TourStep {
 export const TOUR_STEPS: TourStep[] = [
   {
     id: "welcome",
-    title: "Welcome to Ledger",
-    body: "Here's a one-minute tour of your money app. You can replay it any time from the ? button.",
+    title: "Welcome to RecordIn",
+    body: "Here's a one-minute tour of RecordIn, where every penny is recorded. You can replay it any time from the ? button.",
   },
   {
     id: "balance",

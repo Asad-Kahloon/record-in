@@ -11,6 +11,7 @@ import { DeleteEntryButton } from "@/components/delete-entry-button";
 import { formatTimeLeft, useEditWindow } from "@/components/editable-badge";
 import { LockConfirm, LockHint, rememberSkipLockReminder, shouldShowLockReminder } from "@/components/lock-confirm";
 import { useAppConfig, useMoney } from "@/components/providers/app-config";
+import { useEntrySheets } from "@/components/providers/entry-sheets";
 import { UserAvatar } from "@/components/user-avatar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ export function DebtForm({
   const isEdit = Boolean(debt);
   const config = useAppConfig();
   const money = useMoney();
+  const { available } = useEntrySheets();
   const today = todayIn(config.timeZone);
   const yesterday = addDays(today, -1);
 
@@ -92,6 +94,14 @@ export function DebtForm({
     if (values.occurredOn > today) {
       setErrors({ occurredOn: "The date can't be in the future" });
       return;
+    }
+    // Lending is money leaving your hands.
+    if (values.direction === "lent" && values.currency === config.currency) {
+      const allowance = available + (debt?.direction === "lent" && !debt.settled_on ? debt.base_amount : 0);
+      if (Number(values.amount) > allowance) {
+        setErrors({ amount: `That is more than the ${money(allowance)} you have available` });
+        return;
+      }
     }
     if (!isEdit && shouldShowLockReminder()) {
       setStep("confirm");
@@ -215,6 +225,11 @@ export function DebtForm({
             invalid={!!errors.amount}
             disabled={locked}
           />
+          {borrowed ? null : (
+            <FieldDescription>
+              Available to lend: <span className="money font-medium text-foreground">{money(available)}</span>
+            </FieldDescription>
+          )}
           <FieldError>{errors.amount}</FieldError>
         </Field>
 

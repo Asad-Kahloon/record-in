@@ -81,7 +81,12 @@ export function MonthReport({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 @3xl/main:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 @3xl/main:grid-cols-3">
+        <MiniStat
+          label="Carried in"
+          value={money(summary.opening_balance)}
+          hint="Left over from earlier months"
+        />
         <MiniStat label="Income" value={money(summary.income_total)} tone="income" hint={`${summary.income_count} entries`} />
         <MiniStat label="Spent" value={money(summary.expense_total)} tone="expense" hint={`${summary.expense_count} expenses`} />
         <MiniStat
@@ -89,6 +94,12 @@ export function MonthReport({
           value={money(Math.abs(saved))}
           tone="brand"
           hint={rate !== null ? `${formatPercent(rate, config.locale)} savings rate` : "Add income to see savings"}
+        />
+        <MiniStat
+          label="Left at month end"
+          value={money(summary.closing_balance)}
+          tone="brand"
+          hint={`Carried into ${formatMonth(shiftMonth(month, 1), config.locale, "short")}`}
         />
         <MiniStat
           label="Daily average"

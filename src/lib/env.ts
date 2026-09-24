@@ -48,6 +48,13 @@ export const env = {
   get appUrl() {
     return read("APP_URL")?.replace(/\/+$/, "");
   },
+  /** Public address of the site, for canonical URLs, sitemap and social cards. */
+  get siteUrl() {
+    const configured = this.appUrl;
+    if (configured) return configured;
+    const vercel = read("VERCEL_PROJECT_PRODUCTION_URL") ?? read("VERCEL_URL");
+    return vercel ? `https://${vercel}` : "http://localhost:3000";
+  },
   get startMonth() {
     const value = read("APP_START_MONTH");
     return value && MONTH_KEY.test(value) ? value : "2026-09";

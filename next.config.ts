@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   productionBrowserSourceMaps: false,
   reactStrictMode: true,
 
+  // Lets a verification build run in its own folder while the dev server is up.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
+
   images: {
     remotePatterns: [{ protocol: "https", hostname: "lh3.googleusercontent.com" }],
   },

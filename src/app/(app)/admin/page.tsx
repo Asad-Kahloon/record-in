@@ -132,11 +132,7 @@ function AccountCard({
                 {name}
               </Link>
               {isSelf ? <Badge variant="secondary">You</Badge> : null}
-              {user.role === "superadmin" ? (
-                <Badge className="bg-brand/15 text-brand">Super admin</Badge>
-              ) : (
-                <Badge variant="outline">Member</Badge>
-              )}
+              {user.role === "superadmin" ? <Badge className="bg-brand/15 text-brand">Super admin</Badge> : null}
               {user.currency ? <Badge variant="secondary">{user.currency}</Badge> : null}
               {!user.is_active ? <Badge variant="destructive">Deactivated</Badge> : null}
             </div>

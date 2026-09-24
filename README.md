@@ -1,4 +1,4 @@
-# Ledger — Expense Tracker
+# RecordIn — record every penny
 
 A private, dark-mode expense tracker for a few people. Log monthly income and daily expenses, see this month's report and an all-time report, and let one super admin keep an eye on every account.
 

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
 import { AppSidebar } from "@/components/app-sidebar";
@@ -11,13 +12,20 @@ import { SiteHeader } from "@/components/site-header";
 import { TourProvider } from "@/components/tour/tour-provider";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { PRIVACY_COOKIE } from "@/lib/constants";
-import { getCategories, getUnreadCount, requireActiveProfile } from "@/lib/data";
+import { getBalance, getCategories, getUnreadCount, requireActiveProfile } from "@/lib/data";
 import { getAppConfig } from "@/lib/env";
 import { displayName } from "@/lib/format";
 
+export const metadata: Metadata = { robots: { index: false, follow: false } };
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const profile = await requireActiveProfile();
-  const [categories, unreadCount, cookieStore] = await Promise.all([getCategories(), getUnreadCount(), cookies()]);
+  const [categories, unreadCount, balance, cookieStore] = await Promise.all([
+    getCategories(),
+    getUnreadCount(),
+    getBalance(null),
+    cookies(),
+  ]);
   const config = getAppConfig(profile.currency);
 
   const user: ShellUser = {
@@ -32,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <AppConfigProvider value={{ ...config, editWindowMinutes: profile.edit_window_minutes }}>
       <PrivacyProvider initialHidden={cookieStore.get(PRIVACY_COOKIE)?.value === "on"}>
         <UnreadProvider initialCount={unreadCount}>
-          <EntrySheetsProvider categories={categories}>
+          <EntrySheetsProvider categories={categories} available={balance.available}>
             <TourProvider autoStart={!profile.onboarded_at}>
               <SidebarProvider
                 style={

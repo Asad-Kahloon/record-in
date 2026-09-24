@@ -409,6 +409,61 @@ begin
 end;
 $$;
 
+-- Money actually available to spend, across all months:
+--   income − spending + money borrowed and still held − money lent out.
+-- A settled debt cancels itself out on both sides, so it drops out of the sum.
+create or replace function private.available_balance(p_user_id uuid)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select
+    coalesce((select sum(i.base_amount) from public.incomes i where i.user_id = p_user_id), 0)
+    - coalesce((select sum(e.base_amount) from public.expenses e where e.user_id = p_user_id), 0)
+    + coalesce((select sum(d.base_amount) from public.debts d
+                where d.user_id = p_user_id and d.direction = 'borrowed' and d.settled_on is null), 0)
+    - coalesce((select sum(d.base_amount) from public.debts d
+                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on is null), 0);
+$$;
+
+-- The same balance as it stood before a date — what was carried into a month.
+create or replace function private.balance_before(p_user_id uuid, p_date date)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select
+    coalesce((select sum(i.base_amount) from public.incomes i
+              where i.user_id = p_user_id and i.month < p_date), 0)
+    - coalesce((select sum(e.base_amount) from public.expenses e
+                where e.user_id = p_user_id and e.spent_on < p_date), 0)
+    + coalesce((select sum(d.base_amount) from public.debts d
+                where d.user_id = p_user_id and d.direction = 'borrowed' and d.occurred_on < p_date), 0)
+    - coalesce((select sum(d.base_amount) from public.debts d
+                where d.user_id = p_user_id and d.direction = 'borrowed' and d.settled_on < p_date), 0)
+    - coalesce((select sum(d.base_amount) from public.debts d
+                where d.user_id = p_user_id and d.direction = 'lent' and d.occurred_on < p_date), 0)
+    + coalesce((select sum(d.base_amount) from public.debts d
+                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on < p_date), 0);
+$$;
+
+-- Every penny is recorded, so money can only go out if it is actually there.
+-- p_credit adds back the amount of an entry that is being replaced or removed.
+create or replace function private.assert_can_spend(p_user public.users, p_amount numeric, p_credit numeric default 0)
+returns void
+language plpgsql stable security definer
+set search_path = ''
+as $$
+declare
+  v_available numeric := private.available_balance(p_user.id) + coalesce(p_credit, 0);
+begin
+  if p_amount > v_available then
+    raise exception 'That is more than the % you have available. Record the money coming in first.',
+      coalesce(p_user.currency, '') || ' ' || to_char(greatest(v_available, 0), 'FM999999999990.00');
+  end if;
+end;
+$$;
+
 create or replace function private.validate_expense(
   p_amount numeric,
   p_category text,
@@ -1146,6 +1201,8 @@ begin
     raise exception 'This exact expense was added a moment ago, so the duplicate was skipped.';
   end if;
 
+  perform private.assert_can_spend(v_user, private.converted(p_amount, v_rate));
+
   insert into public.expenses (user_id, category, amount, currency, rate, base_amount, description, spent_on, payment_method)
   values (
     v_user.id, p_category, round(p_amount, 2), p_currency, v_rate,
@@ -1207,6 +1264,9 @@ begin
      and v_row.payment_method = p_payment_method then
     return to_jsonb(v_row); -- nothing changed, don't ping the admin
   end if;
+
+  -- The old amount goes back into the balance before the new one is checked.
+  perform private.assert_can_spend(v_user, private.converted(p_amount, v_rate), v_row.base_amount);
 
   update public.expenses e
      set amount = round(p_amount, 2),
@@ -1404,6 +1464,10 @@ begin
     return to_jsonb(v_row);
   end if;
 
+  if private.converted(p_amount, v_rate) < v_row.base_amount then
+    perform private.assert_can_spend(v_user, v_row.base_amount - private.converted(p_amount, v_rate));
+  end if;
+
   update public.incomes i
      set month = private.month_start(p_month),
          amount = round(p_amount, 2),
@@ -1439,6 +1503,8 @@ begin
   if now() > v_row.editable_until then
     raise exception 'This income entry is locked and can no longer be deleted.';
   end if;
+
+  perform private.assert_can_spend(v_user, v_row.base_amount);
 
   delete from public.incomes i where i.id = p_id;
 end;
@@ -1527,6 +1593,11 @@ begin
     raise exception 'This exact entry was added a moment ago, so the duplicate was skipped.';
   end if;
 
+  -- Lending is money leaving your hands, so it has to be there.
+  if p_direction = 'lent' then
+    perform private.assert_can_spend(v_user, private.converted(p_amount, v_rate));
+  end if;
+
   insert into public.debts (user_id, direction, counterparty, amount, currency, rate, base_amount, note, occurred_on, due_on)
   values (
     v_user.id, p_direction, btrim(p_counterparty), round(p_amount, 2), p_currency, v_rate,
@@ -1594,6 +1665,17 @@ begin
     return to_jsonb(v_row);
   end if;
 
+  if p_direction = 'lent' then
+    perform private.assert_can_spend(
+      v_user,
+      private.converted(p_amount, v_rate),
+      case
+        when v_row.settled_on is not null then 0
+        when v_row.direction = 'lent' then v_row.base_amount
+        else -v_row.base_amount
+      end);
+  end if;
+
   update public.debts d
      set direction = p_direction,
          counterparty = btrim(p_counterparty),
@@ -1632,6 +1714,10 @@ begin
     raise exception 'This debt is locked and can no longer be deleted.';
   end if;
 
+  if v_row.direction = 'borrowed' and v_row.settled_on is null then
+    perform private.assert_can_spend(v_user, v_row.base_amount);
+  end if;
+
   delete from public.debts d where d.id = p_id;
 end;
 $$;
@@ -1667,10 +1753,16 @@ begin
     if v_row.settled_on is not distinct from v_date then
       return to_jsonb(v_row);
     end if;
+    if v_row.direction = 'borrowed' then
+      perform private.assert_can_spend(v_user, v_row.base_amount);
+    end if;
     update public.debts d set settled_on = v_date where d.id = p_id returning * into v_row;
   else
     if v_row.settled_on is null then
       return to_jsonb(v_row);
+    end if;
+    if v_row.direction = 'lent' then
+      perform private.assert_can_spend(v_user, v_row.base_amount);
     end if;
     update public.debts d set settled_on = null where d.id = p_id returning * into v_row;
   end if;
@@ -1789,6 +1881,9 @@ begin
   select jsonb_build_object(
     'month',              v_from,
     'currency',           (select u.currency from public.users u where u.id = v_target),
+    'opening_balance',    private.balance_before(v_target, v_from),
+    'closing_balance',    private.balance_before(v_target, v_to),
+    'available_balance',  private.available_balance(v_target),
     'income_total',       (select coalesce(sum(i.base_amount), 0) from public.incomes i where i.user_id = v_target and i.month = v_from),
     'income_count',       (select count(*) from public.incomes i where i.user_id = v_target and i.month = v_from),
     'expense_total',      (select coalesce(sum(x.base_amount), 0) from me x),
@@ -1851,6 +1946,7 @@ begin
   )
   select jsonb_build_object(
     'currency',         (select u.currency from public.users u where u.id = v_target),
+    'available',        private.available_balance(v_target),
     'income_total',     (select coalesce(sum(i.base_amount), 0) from public.incomes i where i.user_id = v_target),
     'expense_total',    (select coalesce(sum(e.base_amount), 0) from public.expenses e where e.user_id = v_target),
     'income_count',     (select count(*) from public.incomes i where i.user_id = v_target),
@@ -2179,6 +2275,36 @@ end;
 $$;
 
 -- -----------------------------------------------------------------------------
+-- 12b. Balance — what is available to spend, across all months
+-- -----------------------------------------------------------------------------
+
+create or replace function public.get_balance(p_user_id uuid default null)
+returns jsonb
+language plpgsql stable security definer
+set search_path = ''
+as $$
+declare
+  v_user   public.users;
+  v_target uuid;
+begin
+  v_user := private.require_user();
+  v_target := private.resolve_target(v_user, p_user_id);
+
+  return jsonb_build_object(
+    'available',        private.available_balance(v_target),
+    'income_total',     coalesce((select sum(i.base_amount) from public.incomes i where i.user_id = v_target), 0),
+    'expense_total',    coalesce((select sum(e.base_amount) from public.expenses e where e.user_id = v_target), 0),
+    'borrowed_pending', coalesce((select sum(d.base_amount) from public.debts d
+                                  where d.user_id = v_target and d.direction = 'borrowed' and d.settled_on is null), 0),
+    'lent_pending',     coalesce((select sum(d.base_amount) from public.debts d
+                                  where d.user_id = v_target and d.direction = 'lent' and d.settled_on is null), 0),
+    'currency',         (select u.currency from public.users u where u.id = v_target)
+  );
+end;
+$$;
+
+
+-- -----------------------------------------------------------------------------
 -- 13. Budgets — monthly spending limits in the owner's main currency.
 --     category NULL = the overall monthly budget. Budgets are settings, not
 --     entries, so they can be changed at any time (no edit window).
@@ -2346,6 +2472,7 @@ begin
     'public.set_debt_settled(uuid, boolean, date)',
     'public.list_debts(uuid)',
     'public.get_debt_summary(uuid)',
+    'public.get_balance(uuid)',
     'public.list_budgets(uuid)',
     'public.set_budget(text, numeric)',
     'public.delete_budget(text)',

@@ -87,11 +87,7 @@ export default async function AccountPage({ params, searchParams }: { params: Pa
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
                 <h1 className="truncate text-2xl font-semibold tracking-tight">{name}</h1>
-                {account.role === "superadmin" ? (
-                  <Badge className="bg-brand/15 text-brand">Super admin</Badge>
-                ) : (
-                  <Badge variant="outline">Member</Badge>
-                )}
+                {account.role === "superadmin" ? <Badge className="bg-brand/15 text-brand">Super admin</Badge> : null}
                 {account.currency ? <Badge variant="secondary">{account.currency}</Badge> : null}
                 {!account.is_active ? <Badge variant="destructive">Deactivated</Badge> : null}
               </div>

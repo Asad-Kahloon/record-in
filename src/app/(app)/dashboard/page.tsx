@@ -63,7 +63,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
       <div className="grid gap-4 @4xl/main:grid-cols-2">
         <div className="flex flex-col gap-4">
-          <BankCard summary={summary} month={month} holder={name} />
+          <BankCard summary={summary} month={month} holder={name} isCurrentMonth={isCurrentMonth} />
           <QuickActions month={month} />
         </div>
         <div className="flex flex-col gap-4">

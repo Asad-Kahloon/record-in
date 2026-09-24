@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownToLineIcon, ArrowUpFromLineIcon, NfcIcon, PlusIcon } from "lucide-react";
+import { ArrowDownToLineIcon, ArrowUpFromLineIcon, CircleAlertIcon, NfcIcon, PlusIcon } from "lucide-react";
 
 import { BrandMark } from "@/components/brand";
 import { useAppConfig, useMoney } from "@/components/providers/app-config";
@@ -12,16 +12,21 @@ import { formatMonth } from "@/lib/dates";
 import { formatPercent } from "@/lib/format";
 import type { MonthSummary } from "@/lib/types";
 
-/** The hero balance, dressed as a premium debit card. */
+/**
+ * The hero balance, dressed as a bank card. The balance runs across months:
+ * whatever is left over keeps funding the next month.
+ */
 export function BankCard({
   summary,
   month,
   holder,
+  isCurrentMonth,
   readOnly = false,
 }: {
   summary: MonthSummary;
   month: string;
   holder: string;
+  isCurrentMonth: boolean;
   readOnly?: boolean;
 }) {
   const money = useMoney();
@@ -30,9 +35,13 @@ export function BankCard({
 
   const income = summary.income_total;
   const spent = summary.expense_total;
-  const balance = income - spent;
-  const share = income > 0 ? spent / income : 0;
-  const label = income > 0 ? (balance >= 0 ? "Available this month" : "Spent over income") : "Spent this month";
+  const carriedIn = summary.opening_balance;
+  const balance = isCurrentMonth ? summary.available_balance : summary.closing_balance;
+  const label = isCurrentMonth ? "Available balance" : `Left at the end of ${formatMonth(month, locale, "short")}`;
+
+  // How much of this month's money (carried in + income) has gone out.
+  const pot = carriedIn + income;
+  const share = pot > 0 ? Math.min(spent / pot, 1) : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -62,16 +71,19 @@ export function BankCard({
 
         <div className="mt-5 space-y-1">
           <p className="text-sm text-white/75">{label}</p>
-          <p className="money text-4xl font-semibold tracking-tight break-all sm:text-5xl">
-            {money(income > 0 ? Math.abs(balance) : spent)}
-          </p>
+          <p className="money text-4xl font-semibold tracking-tight break-all sm:text-5xl">{money(balance)}</p>
+          {carriedIn !== 0 ? (
+            <p className="money text-xs text-white/70">
+              {carriedIn > 0 ? "Carried in" : "Started this month"} {money(carriedIn)} from earlier months
+            </p>
+          ) : null}
         </div>
 
-        {income > 0 ? (
+        {share !== null ? (
           <div className="mt-4 space-y-1.5">
             <div
               role="meter"
-              aria-label="Share of income spent"
+              aria-label="Share of this month's money spent"
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(share * 100)}
@@ -79,7 +91,7 @@ export function BankCard({
             >
               <div className="h-full rounded-full bg-white" style={{ width: `${Math.min(100, Math.max(2, share * 100))}%` }} />
             </div>
-            <p className="text-xs text-white/75">{formatPercent(share, locale)} of income spent</p>
+            <p className="text-xs text-white/75">{formatPercent(share, locale)} of this month&apos;s money spent</p>
           </div>
         ) : null}
 
@@ -103,7 +115,7 @@ export function BankCard({
             <span className="flex size-6 items-center justify-center rounded-full bg-income/15 text-income">
               <ArrowDownToLineIcon className="size-3.5" />
             </span>
-            Income
+            In this month
           </p>
           <p className="money mt-1.5 truncate text-lg font-semibold">{money(income)}</p>
         </div>
@@ -112,17 +124,23 @@ export function BankCard({
             <span className="flex size-6 items-center justify-center rounded-full bg-expense/15 text-expense">
               <ArrowUpFromLineIcon className="size-3.5" />
             </span>
-            Spent
+            Out this month
           </p>
           <p className="money mt-1.5 truncate text-lg font-semibold">{money(spent)}</p>
         </div>
       </div>
 
-      {income === 0 && !readOnly ? (
-        <Button variant="secondary" className="h-11 rounded-2xl" onClick={() => addIncome(month)}>
-          <PlusIcon />
-          Add {formatMonth(month, locale).split(" ")[0]} income
-        </Button>
+      {summary.available_balance <= 0 && !readOnly ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
+          <CircleAlertIcon className="size-5 shrink-0 text-destructive" />
+          <p className="flex-1 text-sm text-muted-foreground">
+            Nothing left to spend. Record the money coming in before adding expenses.
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => addIncome(month)}>
+            <PlusIcon />
+            Income
+          </Button>
+        </div>
       ) : null}
     </div>
   );

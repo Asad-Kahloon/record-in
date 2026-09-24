@@ -17,6 +17,8 @@ type SheetState =
   | null;
 
 interface EntrySheets {
+  /** Money available to spend right now — shown in the forms. */
+  available: number;
   /** "What do you want to add?" chooser used by the + buttons. */
   openQuickAdd: () => void;
   addExpense: () => void;
@@ -47,7 +49,15 @@ function sheetText(state: SheetState): { title: string; description?: string } {
   }
 }
 
-export function EntrySheetsProvider({ categories, children }: { categories: Category[]; children: React.ReactNode }) {
+export function EntrySheetsProvider({
+  categories,
+  available,
+  children,
+}: {
+  categories: Category[];
+  available: number;
+  children: React.ReactNode;
+}) {
   const [state, setState] = useState<SheetState>(null);
   const [open, setOpen] = useState(false);
   // Bumped on every open so each form starts from a clean slate.
@@ -59,7 +69,7 @@ export function EntrySheetsProvider({ categories, children }: { categories: Cate
     setOpen(true);
   }, []);
 
-  const api = useMemo<EntrySheets>(
+  const api = useMemo<Omit<EntrySheets, "available">>(
     () => ({
       openQuickAdd: () => show({ kind: "quick" }),
       addExpense: () => show({ kind: "expense" }),
@@ -72,11 +82,12 @@ export function EntrySheetsProvider({ categories, children }: { categories: Cate
     [show],
   );
 
+  const value = useMemo(() => ({ ...api, available }), [api, available]);
   const close = useCallback(() => setOpen(false), []);
   const text = sheetText(state);
 
   return (
-    <EntrySheetsContext.Provider value={api}>
+    <EntrySheetsContext.Provider value={value}>
       {children}
       <ResponsiveSheet open={open} onOpenChange={setOpen} title={text.title} description={text.description}>
         {state?.kind === "quick" ? (

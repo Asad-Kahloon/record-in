@@ -1,6 +1,10 @@
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
+/**
+ * RecordIn mark: a record ring with an arrow going in — money recorded as it
+ * comes in. Drawn with strokes so it stays readable down to 16px.
+ */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <span
@@ -11,16 +15,17 @@ export function BrandMark({ className }: { className?: string }) {
     >
       <svg
         viewBox="0 0 24 24"
-        className="size-[55%]"
+        className="size-[62%]"
         fill="none"
         stroke="currentColor"
-        strokeWidth={2.5}
+        strokeWidth={2.4}
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
       >
-        <path d="M4 19h16" />
-        <path d="M6 15l4-4 3 3 5-6" />
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M12 7.5v6.5" />
+        <path d="m8.75 10.75 3.25 3.25 3.25-3.25" />
       </svg>
     </span>
   );
@@ -30,7 +35,10 @@ export function Brand({ className, markClassName }: { className?: string; markCl
   return (
     <span className={cn("flex items-center gap-2.5", className)}>
       <BrandMark className={markClassName} />
-      <span className="text-base font-semibold tracking-tight">{APP_NAME}</span>
+      <span className="text-base font-semibold tracking-tight">
+        Record<span className="text-brand">In</span>
+      </span>
     </span>
   );
 }
+
