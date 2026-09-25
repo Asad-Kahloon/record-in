@@ -1,6 +1,6 @@
 "use client";
 
-import { HandCoinsIcon, ReceiptTextIcon, UserPlusIcon, WalletIcon } from "lucide-react";
+import { HandCoinsIcon, PiggyBankIcon, ReceiptTextIcon, UserPlusIcon, WalletIcon } from "lucide-react";
 
 import { useMoney } from "@/components/providers/app-config";
 import { UserAvatar } from "@/components/user-avatar";
@@ -14,6 +14,7 @@ const TONE: Record<NotificationTone, { icon: typeof WalletIcon; className: strin
   expense: { icon: ReceiptTextIcon, className: "bg-expense text-white" },
   income: { icon: WalletIcon, className: "bg-income text-white" },
   debt: { icon: HandCoinsIcon, className: "bg-brand text-brand-foreground" },
+  goal: { icon: PiggyBankIcon, className: "bg-brand/80 text-brand-foreground" },
   user: { icon: UserPlusIcon, className: "bg-secondary text-foreground" },
 };
 

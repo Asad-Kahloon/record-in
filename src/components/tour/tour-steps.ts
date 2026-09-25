@@ -33,6 +33,12 @@ export const TOUR_STEPS: TourStep[] = [
     body: "Set a monthly limit and see how much is safe to spend per day. The bar turns amber when you're close and red when you're over.",
   },
   {
+    id: "aims",
+    target: '[data-tour="aims"]',
+    title: "Save for what's next",
+    body: "An aim is something you're saving for — a car, a laptop, a trip. Tell us the cost and the date, pick daily, weekly, monthly or yearly, and we'll ask for one instalment at a time. Money you set aside leaves your balance and waits in the aims wallet.",
+  },
+  {
     id: "transactions",
     target: '[data-tour="transactions"]',
     title: "Every transaction",

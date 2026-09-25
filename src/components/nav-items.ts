@@ -4,6 +4,7 @@ import {
   ChartColumnIcon,
   HandCoinsIcon,
   HouseIcon,
+  PiggyBankIcon,
   ReceiptTextIcon,
   ShieldCheckIcon,
   TargetIcon,
@@ -39,6 +40,12 @@ export const DEBTS_NAV: NavItem = {
   description: "Who owes whom",
 };
 export const BUDGETS_NAV: NavItem = { title: "Budgets", href: "/budgets", icon: TargetIcon, description: "Monthly limits" };
+export const GOALS_NAV: NavItem = {
+  title: "Aims",
+  href: "/goals",
+  icon: PiggyBankIcon,
+  description: "Saving for what's next",
+};
 export const REPORTS_NAV: NavItem = { title: "Reports", href: "/reports", icon: ChartColumnIcon, description: "Month & overall" };
 export const NOTIFICATIONS_NAV: NavItem = { title: "Notifications", href: "/notifications", icon: BellIcon, description: "Account activity" };
 export const PROFILE_NAV: NavItem = { title: "Profile", href: "/profile", icon: UserRoundIcon, description: "Account & currency" };
@@ -46,7 +53,7 @@ export const ADMIN_NAV: NavItem = { title: "All accounts", href: "/admin", icon:
 
 export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "Overview", items: [HOME_NAV, TRANSACTIONS_NAV] },
-  { label: "Money", items: [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV] },
+  { label: "Money", items: [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV, GOALS_NAV] },
   { label: "Insights", items: [REPORTS_NAV] },
 ];
 

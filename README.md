@@ -25,6 +25,20 @@ Built with Next.js 16, shadcn/ui, Tailwind CSS 4 and Supabase. Works on phones (
 | **Notifications** | The super admin is notified when someone adds, edits, settles or deletes an entry or joins. A toast appears right after signing in |
 | **Borrow & lend** | Record money you borrowed (you owe) or lent (you're owed), with an optional return date. Mark entries as paid back / received at any time — even after the 30-minute lock — and see overdue ones |
 | **Currencies** | Every user picks a main currency on first sign-in (changeable in Profile). Any entry can be added in another currency (USD, EUR, AED…) and is converted with the day's exchange rate; totals and reports are always in the main currency |
+| **Aims** | Save for something: give it a cost, a date and a rhythm (daily, weekly, monthly or yearly). RecordIn works out the instalment — *what's left ÷ periods left* — and asks for it each period. Money you set aside leaves your available balance and waits in the **aims wallet**; taking it back puts it straight back. Miss a period and it asks one question: add time, or keep the date and save a bit more |
+| **Install** | A full progressive web app: install it on a phone or desktop from Profile → Install, launch it full-screen, and see a proper offline page instead of a browser error |
+
+---
+
+### The one rule about money
+
+Nothing can be spent, lent or set aside beyond what you actually have:
+
+```
+available = income − spending + money borrowed − money lent out − money in aims
+```
+
+That total is all-time, not monthly, because next month's income often arrives on the 25th and what you don't spend carries forward. Months are only a reporting lens: each month's report shows what was **carried in**, what came **in**, what went **out**, what went **into aims**, and what was **left at the end**.
 
 ---
 

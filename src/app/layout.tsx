@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { cookies, headers } from "next/headers";
 
+import { ServiceWorker } from "@/components/pwa/service-worker";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { APP_DESCRIPTION, APP_KEYWORDS, APP_NAME, APP_TAGLINE, PRIVACY_COOKIE } from "@/lib/constants";
@@ -55,6 +56,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={cn("dark", sans.variable, mono.variable)} data-privacy={privacy ? "on" : "off"}>
       <body className="min-h-svh">
         <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        <ServiceWorker />
         <Toaster position="top-center" offset={{ top: "calc(env(safe-area-inset-top) + 12px)" }} />
       </body>
     </html>

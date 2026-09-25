@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 // Routes anyone can open. Everything else needs a signed-in user.
-const PUBLIC_ROUTES = ["/", "/login", "/signup", "/forgot-password", "/auth"];
+const PUBLIC_ROUTES = ["/", "/offline", "/login", "/signup", "/forgot-password", "/auth"];
 // Signed-in users get bounced from these to the dashboard.
 const GUEST_ONLY_ROUTES = ["/login", "/signup", "/forgot-password"];
 
@@ -112,7 +112,7 @@ export const config = {
   matcher: [
     {
       source:
-        "/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|opengraph-image|manifest.webmanifest|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt)$).*)",
+        "/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|opengraph-image|manifest.webmanifest|sitemap.xml|robots.txt|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt)$).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

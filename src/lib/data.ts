@@ -18,6 +18,9 @@ import type {
   Debt,
   DebtSummary,
   Expense,
+  Goal,
+  GoalSaving,
+  GoalSummary,
   Income,
   LargestExpense,
   MethodTotal,
@@ -85,6 +88,8 @@ function normalizeMonthSummary(raw: MonthSummary): MonthSummary {
     opening_balance: num(raw.opening_balance),
     closing_balance: num(raw.closing_balance),
     available_balance: num(raw.available_balance),
+    saved: num(raw.saved),
+    saved_total: num(raw.saved_total),
     prev_income_total: num(raw.prev_income_total),
     prev_expense_total: num(raw.prev_expense_total),
     largest_expense: largest(raw.largest_expense),
@@ -98,6 +103,7 @@ function normalizeOverall(raw: OverallSummary): OverallSummary {
   return {
     ...raw,
     available: num(raw.available),
+    saved_total: num(raw.saved_total),
     income_total: num(raw.income_total),
     expense_total: num(raw.expense_total),
     income_count: num(raw.income_count),
@@ -289,6 +295,99 @@ export const getBalance = cache(async (userId: string | null): Promise<Balance> 
     expense_total: num(raw.expense_total),
     borrowed_pending: num(raw.borrowed_pending),
     lent_pending: num(raw.lent_pending),
+    saved_total: num(raw.saved_total),
+    goal_count: num(raw.goal_count),
     currency: raw.currency ?? null,
   };
+});
+
+// ─── aims (savings goals) ────────────────────────────────────────────────────
+
+/** PostgREST's code for "no such function" — the schema hasn't been re-run yet. */
+const MISSING_FUNCTION = "PGRST202";
+
+/** Keeps the app usable on a database that is still a version behind. */
+async function optionalRpc<T>(fn: string, args: Record<string, unknown>, fallback: T): Promise<T> {
+  try {
+    return await rpc<T>(fn, args);
+  } catch (error) {
+    if (error instanceof DataError && error.code === MISSING_FUNCTION) return fallback;
+    throw error;
+  }
+}
+
+export const getGoals = cache(async (userId: string | null): Promise<Goal[]> => {
+  const rows = await optionalRpc<Goal[]>("list_goals", { p_user_id: userId }, []);
+  return (rows ?? []).map((goal) => ({
+    ...withMoney(goal),
+    saved: num(goal.saved),
+    remaining: num(goal.remaining),
+    progress: num(goal.progress),
+    instalment: num(goal.instalment),
+    due_amount: num(goal.due_amount),
+    saved_this_period: num(goal.saved_this_period),
+    periods_left: num(goal.periods_left),
+    days_left: num(goal.days_left),
+    extended_by: num(goal.extended_by),
+    missed_amount: num(goal.missed_amount),
+    missed_last: Boolean(goal.missed_last),
+    is_overdue: Boolean(goal.is_overdue),
+    needs_answer: Boolean(goal.needs_answer),
+  }));
+});
+
+export const getGoalSavings = cache(
+  async (goalId: string | null, userId: string | null = null, limit = 50): Promise<GoalSaving[]> => {
+    const rows = await optionalRpc<GoalSaving[]>(
+      "list_goal_savings",
+      { p_goal_id: goalId, p_limit: limit, p_user_id: userId },
+      [],
+    );
+    return (rows ?? []).map(withMoney);
+  },
+);
+
+const EMPTY_GOAL_SUMMARY: GoalSummary = {
+  wallet_total: 0,
+  target_total: 0,
+  saved_total: 0,
+  active_count: 0,
+  paused_count: 0,
+  achieved_count: 0,
+  due_amount: 0,
+  due_count: 0,
+  behind_count: 0,
+  answer_count: 0,
+  next_due_on: null,
+  currency: null,
+};
+
+export const getGoalSummary = cache(async (userId: string | null): Promise<GoalSummary> => {
+  const raw = await optionalRpc<GoalSummary>("get_goal_summary", { p_user_id: userId }, EMPTY_GOAL_SUMMARY);
+  return {
+    wallet_total: num(raw.wallet_total),
+    target_total: num(raw.target_total),
+    saved_total: num(raw.saved_total),
+    active_count: num(raw.active_count),
+    paused_count: num(raw.paused_count),
+    achieved_count: num(raw.achieved_count),
+    due_amount: num(raw.due_amount),
+    due_count: num(raw.due_count),
+    behind_count: num(raw.behind_count),
+    answer_count: num(raw.answer_count),
+    next_due_on: raw.next_due_on ?? null,
+    currency: raw.currency ?? null,
+  };
+});
+
+/**
+ * Builds this period's aim reminders (one per aim per period, whatever happens)
+ * and hands back the aims still waiting on you. Called when the app is opened.
+ */
+export const syncGoalReminders = cache(async (): Promise<void> => {
+  try {
+    await rpc("sync_my_goal_reminders");
+  } catch {
+    // A reminder that cannot be built must never keep the page from rendering.
+  }
 });

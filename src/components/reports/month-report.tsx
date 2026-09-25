@@ -101,6 +101,14 @@ export function MonthReport({
           tone="brand"
           hint={`Carried into ${formatMonth(shiftMonth(month, 1), config.locale, "short")}`}
         />
+        {summary.saved !== 0 || summary.saved_total > 0 ? (
+          <MiniStat
+            label="Into aims"
+            value={money(summary.saved)}
+            tone="brand"
+            hint={`Aims wallet holds ${money(summary.saved_total)}`}
+          />
+        ) : null}
         <MiniStat
           label="Daily average"
           value={money(days ? summary.expense_total / days : 0)}

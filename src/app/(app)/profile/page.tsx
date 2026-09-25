@@ -6,6 +6,7 @@ import { MiniStat } from "@/components/mini-stat";
 import { PageHeader } from "@/components/page-header";
 import { AppPreferences } from "@/components/profile/app-preferences";
 import { CurrencyCard } from "@/components/profile/currency-form";
+import { InstallCard } from "@/components/pwa/install-card";
 import { PasswordForm, ProfileNameForm, SignOutButton } from "@/components/profile/profile-forms";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -110,6 +111,8 @@ export default async function ProfilePage() {
           <CurrencyCard current={config.currency} />
 
           <AppPreferences />
+
+          <InstallCard />
 
           <Card>
             <CardHeader>

@@ -8,6 +8,7 @@ import {
   BUDGETS_NAV,
   DEBTS_NAV,
   EXPENSES_NAV,
+  GOALS_NAV,
   INCOME_NAV,
   NOTIFICATIONS_NAV,
   PROFILE_NAV,
@@ -17,6 +18,7 @@ import { useSignOut } from "@/components/nav-user";
 import { usePrivacy } from "@/components/providers/privacy";
 import { useUnread } from "@/components/providers/unread";
 import { useTour } from "@/components/tour/tour-provider";
+import { InstallButton } from "@/components/pwa/install-card";
 import { UserAvatar } from "@/components/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,7 +40,7 @@ export function MoreSheet({
   const { count } = useUnread();
   const close = () => onOpenChange(false);
 
-  const items = [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV, NOTIFICATIONS_NAV, PROFILE_NAV];
+  const items = [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV, GOALS_NAV, NOTIFICATIONS_NAV, PROFILE_NAV];
   if (user.isSuperadmin) items.push(ADMIN_NAV);
 
   return (
@@ -83,6 +85,8 @@ export function MoreSheet({
               </Link>
             ))}
           </div>
+
+          <InstallButton className="mt-4" onDone={close} />
 
           <div className="mt-4 flex flex-col gap-2">
             <Button

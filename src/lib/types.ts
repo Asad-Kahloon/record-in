@@ -99,6 +99,9 @@ export interface Balance {
   expense_total: number;
   borrowed_pending: number;
   lent_pending: number;
+  /** Money set aside in aims — out of the balance, but still yours. */
+  saved_total: number;
+  goal_count: number;
   currency: string | null;
 }
 
@@ -146,6 +149,10 @@ export interface MonthSummary {
   closing_balance: number;
   /** Money available right now, across all months. */
   available_balance: number;
+  /** Moved into aims this month (minus anything taken back out). */
+  saved: number;
+  /** What the aims wallet holds in total. */
+  saved_total: number;
   income_total: number;
   income_count: number;
   expense_total: number;
@@ -169,6 +176,7 @@ export interface MonthTotal {
 export interface OverallSummary {
   currency: string | null;
   available: number;
+  saved_total: number;
   income_total: number;
   expense_total: number;
   income_count: number;
@@ -222,6 +230,11 @@ export type NotificationType =
   | "debt_deleted"
   | "debt_settled"
   | "debt_reopened"
+  | "goal_due"
+  | "goal_missed"
+  | "goal_saved"
+  | "goal_withdrawn"
+  | "goal_achieved"
   | "user_joined";
 
 export interface NotificationItem {
@@ -238,6 +251,9 @@ export interface NotificationItem {
     direction?: DebtDirection | null;
     date?: string;
     email?: string;
+    goal_id?: string;
+    cadence?: GoalCadence;
+    missed_amount?: number;
   };
   actor_id: string | null;
   actor_name: string;
@@ -268,3 +284,77 @@ export type FormState =
       values?: Record<string, string>;
     }
   | undefined;
+
+export type GoalCadence = "daily" | "weekly" | "monthly" | "yearly";
+export type GoalStatus = "active" | "paused" | "achieved" | "cancelled";
+
+/** A savings aim, with the plan the database works out for it. */
+export interface Goal {
+  id: string;
+  name: string;
+  note: string | null;
+  /** Target as it was typed. */
+  amount: number;
+  currency: string;
+  rate: number;
+  /** Target in the owner's main currency. */
+  base_amount: number;
+  cadence: GoalCadence;
+  start_on: string;
+  target_on: string;
+  status: GoalStatus;
+  achieved_on: string | null;
+  extended_by: number;
+  created_at: string;
+  /** Set aside so far. */
+  saved: number;
+  remaining: number;
+  /** 0–1. */
+  progress: number;
+  /** What one period asks for right now. */
+  instalment: number;
+  /** Still to put in this period. */
+  due_amount: number;
+  saved_this_period: number;
+  period_start: string;
+  next_period_on: string;
+  periods_left: number;
+  days_left: number;
+  is_overdue: boolean;
+  missed_last: boolean;
+  missed_amount: number;
+  missed_period: string | null;
+  /** The last period fell short and you haven't answered yet. */
+  needs_answer: boolean;
+}
+
+export interface GoalSaving {
+  id: string;
+  goal_id: string;
+  goal_name: string;
+  direction: "in" | "out";
+  amount: number;
+  currency: string;
+  rate: number;
+  base_amount: number;
+  saved_on: string;
+  period_start: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface GoalSummary {
+  /** Everything the aims wallet holds. */
+  wallet_total: number;
+  target_total: number;
+  saved_total: number;
+  active_count: number;
+  paused_count: number;
+  achieved_count: number;
+  due_amount: number;
+  due_count: number;
+  behind_count: number;
+  answer_count: number;
+  next_due_on: string | null;
+  currency: string | null;
+}

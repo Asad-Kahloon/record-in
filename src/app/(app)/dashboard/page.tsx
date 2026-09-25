@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { DailySpendChart } from "@/components/charts/daily-spend-chart";
 import { ActivityBanner, ActivityCard } from "@/components/dashboard/activity";
+import { AimsCard, AimsDueBanner } from "@/components/dashboard/aims-card";
 import { DebtsCard } from "@/components/dashboard/debts-card";
 import { BankCard } from "@/components/home/bank-card";
 import { BudgetOverview } from "@/components/home/budget-overview";
@@ -14,10 +15,13 @@ import {
   getDebts,
   getDebtSummary,
   getExpenses,
+  getGoalSummary,
+  getGoals,
   getIncomes,
   getMonthSummary,
   getNotifications,
   requireActiveProfile,
+  syncGoalReminders,
 } from "@/lib/data";
 import { greeting, monthBounds, resolveMonth } from "@/lib/dates";
 import { getAppConfig } from "@/lib/env";
@@ -36,13 +40,18 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
   const isCurrentMonth = month === bounds.current;
   const isSuperadmin = profile.role === "superadmin";
 
-  const [summary, expenses, incomes, debts, debtSummary, budgets, activity] = await Promise.all([
+  // Opening Home is what builds this period's aim reminders.
+  await syncGoalReminders();
+
+  const [summary, expenses, incomes, debts, debtSummary, budgets, goals, goalSummary, activity] = await Promise.all([
     getMonthSummary(month, null),
     getExpenses(month, null),
     getIncomes(month, null),
     getDebts(null),
     getDebtSummary(null),
     getBudgets(null),
+    getGoals(null),
+    getGoalSummary(null),
     isSuperadmin ? getNotifications(5) : Promise.resolve([]),
   ]);
 
@@ -60,6 +69,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
       </div>
 
       {isSuperadmin ? <ActivityBanner items={activity} /> : null}
+      <AimsDueBanner goals={goals} />
 
       <div className="grid gap-4 @4xl/main:grid-cols-2">
         <div className="flex flex-col gap-4">
@@ -81,6 +91,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
         />
         <div className="flex flex-col gap-4 @4xl/main:col-span-2">
           <DebtsCard summary={debtSummary} />
+          <AimsCard goals={goals} summary={goalSummary} />
           <DailySpendChart month={month} daily={summary.daily} />
           {isSuperadmin && activity.length ? <ActivityCard items={activity} /> : null}
         </div>

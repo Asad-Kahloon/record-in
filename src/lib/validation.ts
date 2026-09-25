@@ -161,3 +161,48 @@ export const budgetInput = z.object({
     .transform(Number)
     .refine((value) => value > 0, "Budget must be greater than zero"),
 });
+
+export const GOAL_CADENCE_VALUES = ["daily", "weekly", "monthly", "yearly"] as const;
+
+const goalBase = z.object({
+  name: z
+    .string({ error: "Give this aim a name" })
+    .trim()
+    .min(1, "Give this aim a name")
+    .max(60, "Keep it under 60 characters"),
+  amount: amountSchema,
+  currency: currencySchema,
+  cadence: z.enum(GOAL_CADENCE_VALUES, { error: "How often will you save?" }),
+  targetOn: dateSchema,
+  note: z.string().trim().max(200, "Keep the note under 200 characters").optional().default(""),
+});
+
+export const goalInput = goalBase;
+export const goalUpdateInput = goalBase.extend({ id: z.uuid("Invalid aim") });
+
+/** An empty amount means "this period's instalment". */
+export const goalSaveInput = z.object({
+  id: z.uuid("Invalid aim"),
+  amount: z.union([z.literal(""), amountSchema]).optional().default(""),
+  currency: z.union([z.literal(""), currencySchema]).optional().default(""),
+  savedOn: z.union([z.literal(""), dateSchema]).optional().default(""),
+  note: z.string().trim().max(200, "Keep the note under 200 characters").optional().default(""),
+});
+
+/** An empty amount takes everything back out. */
+export const goalWithdrawInput = z.object({
+  id: z.uuid("Invalid aim"),
+  amount: z.union([z.literal(""), amountSchema]).optional().default(""),
+  note: z.string().trim().max(200, "Keep the note under 200 characters").optional().default(""),
+});
+
+export const goalStatusInput = z.object({
+  id: z.uuid("Invalid aim"),
+  status: z.enum(["active", "paused", "achieved", "cancelled"], { error: "Unknown status" }),
+});
+
+export const goalMissInput = z.object({
+  id: z.uuid("Invalid aim"),
+  action: z.enum(["extend", "keep"], { error: "Choose how to catch up" }),
+  periods: z.number().int().min(1).max(120).optional().default(1),
+});

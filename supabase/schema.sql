@@ -1,5 +1,5 @@
 -- =============================================================================
---  EXPENSE TRACKER · Supabase schema  (v3 — multi-currency, borrow & lend, budgets)
+--  RECORDIN · Supabase schema  (v4 — running balance, aims & savings wallet)
 --  Paste this whole file into Supabase → SQL Editor → Run.
 --
 --  Safe to run again at any time. On an existing database it upgrades in place:
@@ -11,10 +11,17 @@
 --    public.expenses          daily expenses
 --    public.debts             money you borrowed or lent, pending or settled
 --    public.budgets           monthly spending limits (overall + per category)
+--    public.goals             savings aims (what, how much, by when, how often)
+--    public.goal_savings      the aims wallet — money set aside, and taken back
+--    public.push_subscriptions  devices that may receive reminders later
 --    public.categories        fixed expense categories
 --    public.notifications     activity feed delivered to the super admin
 --
 --  Money
+--    Available balance = income − spending + money borrowed − money lent out
+--    − money set aside in aims, counted across all months. Nothing can be
+--    spent, lent or set aside beyond it; months are only a reporting lens.
+--
 --    Every entry keeps exactly what was typed (amount + currency) and its value
 --    in the owner's main currency (base_amount = amount × rate). Reports always
 --    sum base_amount. The app server supplies exchange rates; the database
@@ -224,14 +231,6 @@ begin
   end loop;
 end $$;
 
-alter table public.notifications drop constraint if exists notifications_type_valid;
-alter table public.notifications add constraint notifications_type_valid check (type in (
-  'expense_added', 'expense_updated', 'expense_deleted',
-  'income_added', 'income_updated', 'income_deleted',
-  'debt_added', 'debt_updated', 'debt_deleted', 'debt_settled', 'debt_reopened',
-  'user_joined'
-));
-
 create index if not exists incomes_user_month_idx on public.incomes (user_id, month);
 create index if not exists incomes_user_created_idx on public.incomes (user_id, created_at desc);
 create index if not exists expenses_user_spent_idx on public.expenses (user_id, spent_on desc, created_at desc);
@@ -409,6 +408,135 @@ begin
 end;
 $$;
 
+-- -----------------------------------------------------------------------------
+-- 15. Savings goals ("aims") — money set aside for something you are saving for.
+--
+--     An aim has a target, a deadline and a saving rhythm (daily, weekly,
+--     monthly or yearly). The app asks for one instalment per period; the
+--     instalment is always "what is still missing ÷ periods still left", so a
+--     missed period simply raises the next one. If you would rather keep the
+--     old instalment, push the deadline out with resolve_goal_miss().
+--
+--     Money set aside is real money: it leaves the available balance and lands
+--     in the aims wallet (public.goal_savings). Taking it back out puts it
+--     straight back into the available balance. Nothing is ever deleted, so
+--     every penny stays traceable.
+-- -----------------------------------------------------------------------------
+
+create table if not exists public.goals (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references public.users (id) on delete cascade,
+  name          text not null,
+  note          text,
+  amount        numeric(14, 2) not null,
+  currency      text not null,
+  rate          numeric(18, 8) not null default 1,
+  base_amount   numeric(14, 2) not null,
+  cadence       text not null,
+  start_on      date not null default (private.utc_today()),
+  target_on     date not null,
+  status        text not null default 'active',
+  achieved_on   date,
+  extended_by   integer not null default 0,
+  prompted_for  date,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  constraint goals_name_len check (char_length(btrim(name)) between 1 and 60),
+  constraint goals_note_len check (note is null or char_length(note) <= 200),
+  constraint goals_amount_range check (amount > 0 and amount <= 999999999.99),
+  constraint goals_base_amount_range check (base_amount > 0 and base_amount <= 999999999999.99),
+  constraint goals_currency_format check (currency ~ '^[A-Z]{3}$'),
+  constraint goals_rate_positive check (rate > 0),
+  constraint goals_cadence_valid check (cadence in ('daily', 'weekly', 'monthly', 'yearly')),
+  constraint goals_status_valid check (status in ('active', 'paused', 'achieved', 'cancelled')),
+  constraint goals_extended_range check (extended_by >= 0 and extended_by <= 1000),
+  constraint goals_start_min check (start_on >= date '2020-01-01'),
+  constraint goals_target_after_start check (target_on > start_on),
+  constraint goals_achieved_after_start check (achieved_on is null or achieved_on >= start_on)
+);
+
+-- Every movement of the aims wallet: 'in' sets money aside, 'out' takes it back.
+create table if not exists public.goal_savings (
+  id            uuid primary key default gen_random_uuid(),
+  goal_id       uuid not null references public.goals (id) on delete cascade,
+  user_id       uuid not null references public.users (id) on delete cascade,
+  direction     text not null default 'in',
+  amount        numeric(14, 2) not null,
+  currency      text not null,
+  rate          numeric(18, 8) not null default 1,
+  base_amount   numeric(14, 2) not null,
+  saved_on      date not null default (private.utc_today()),
+  period_start  date,
+  note          text,
+  created_at    timestamptz not null default now(),
+  constraint goal_savings_direction_valid check (direction in ('in', 'out')),
+  constraint goal_savings_amount_range check (amount > 0 and amount <= 999999999.99),
+  constraint goal_savings_base_amount_range check (base_amount > 0 and base_amount <= 999999999999.99),
+  constraint goal_savings_currency_format check (currency ~ '^[A-Z]{3}$'),
+  constraint goal_savings_rate_positive check (rate > 0),
+  constraint goal_savings_note_len check (note is null or char_length(note) <= 200),
+  constraint goal_savings_saved_on_min check (saved_on >= date '2020-01-01')
+);
+
+-- Web-push endpoints for install-to-home-screen reminders. Kept here so push
+-- can be switched on later without touching the schema again.
+create table if not exists public.push_subscriptions (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references public.users (id) on delete cascade,
+  endpoint      text not null,
+  p256dh        text not null,
+  auth          text not null,
+  user_agent    text,
+  created_at    timestamptz not null default now(),
+  last_seen_at  timestamptz not null default now(),
+  constraint push_endpoint_len check (char_length(endpoint) between 10 and 1000),
+  constraint push_keys_len check (char_length(p256dh) between 1 and 300 and char_length(auth) between 1 and 300),
+  constraint push_user_agent_len check (user_agent is null or char_length(user_agent) <= 300)
+);
+
+create index if not exists goals_user_idx on public.goals (user_id, status, target_on);
+create index if not exists goals_user_created_idx on public.goals (user_id, created_at desc);
+create index if not exists goal_savings_goal_idx on public.goal_savings (goal_id, saved_on desc, created_at desc);
+create index if not exists goal_savings_user_idx on public.goal_savings (user_id, saved_on desc);
+create unique index if not exists push_subscriptions_endpoint_key on public.push_subscriptions (endpoint);
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
+
+-- Aim reminders are delivered through the same feed as everything else, but to
+-- the saver rather than the super admin. dedupe_key makes "once per period"
+-- literally true, however many times the app asks for reminders to be built.
+alter table public.notifications add column if not exists dedupe_key text;
+create unique index if not exists notifications_dedupe_key
+  on public.notifications (recipient_id, dedupe_key) where dedupe_key is not null;
+
+alter table public.notifications drop constraint if exists notifications_type_valid;
+alter table public.notifications add constraint notifications_type_valid check (type in (
+  'expense_added', 'expense_updated', 'expense_deleted',
+  'income_added', 'income_updated', 'income_deleted',
+  'debt_added', 'debt_updated', 'debt_deleted', 'debt_settled', 'debt_reopened',
+  'goal_due', 'goal_missed', 'goal_saved', 'goal_withdrawn', 'goal_achieved',
+  'user_joined'
+));
+
+alter table public.goals enable row level security;
+alter table public.goal_savings enable row level security;
+alter table public.push_subscriptions enable row level security;
+
+drop policy if exists "goals: read own, superadmin reads all" on public.goals;
+create policy "goals: read own, superadmin reads all"
+  on public.goals for select to authenticated
+  using (user_id = (select auth.uid()) or (select private.is_superadmin()));
+
+drop policy if exists "goal savings: read own, superadmin reads all" on public.goal_savings;
+create policy "goal savings: read own, superadmin reads all"
+  on public.goal_savings for select to authenticated
+  using (user_id = (select auth.uid()) or (select private.is_superadmin()));
+
+drop policy if exists "push subscriptions: read own" on public.push_subscriptions;
+create policy "push subscriptions: read own"
+  on public.push_subscriptions for select to authenticated
+  using (user_id = (select auth.uid()));
+
+
 -- Money actually available to spend, across all months:
 --   income − spending + money borrowed and still held − money lent out.
 -- A settled debt cancels itself out on both sides, so it drops out of the sum.
@@ -423,7 +551,9 @@ as $$
     + coalesce((select sum(d.base_amount) from public.debts d
                 where d.user_id = p_user_id and d.direction = 'borrowed' and d.settled_on is null), 0)
     - coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on is null), 0);
+                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on is null), 0)
+    - coalesce((select sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end)
+                from public.goal_savings s where s.user_id = p_user_id), 0);
 $$;
 
 -- The same balance as it stood before a date — what was carried into a month.
@@ -444,7 +574,9 @@ as $$
     - coalesce((select sum(d.base_amount) from public.debts d
                 where d.user_id = p_user_id and d.direction = 'lent' and d.occurred_on < p_date), 0)
     + coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on < p_date), 0);
+                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on < p_date), 0)
+    - coalesce((select sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end)
+                from public.goal_savings s where s.user_id = p_user_id and s.saved_on < p_date), 0);
 $$;
 
 -- Every penny is recorded, so money can only go out if it is actually there.
@@ -601,6 +733,7 @@ begin
     (select count(*) from public.expenses e where e.user_id = p_user_id and e.created_at > now() - interval '1 hour')
     + (select count(*) from public.incomes i where i.user_id = p_user_id and i.created_at > now() - interval '1 hour')
     + (select count(*) from public.debts d where d.user_id = p_user_id and d.created_at > now() - interval '1 hour')
+    + (select count(*) from public.goal_savings g where g.user_id = p_user_id and g.created_at > now() - interval '1 hour')
   into v_recent;
 
   if v_recent >= 150 then
@@ -1099,6 +1232,10 @@ begin
     select i.currency from public.incomes i where i.user_id = v_user.id
     union
     select d.currency from public.debts d where d.user_id = v_user.id
+    union
+    select g.currency from public.goals g where g.user_id = v_user.id
+    union
+    select s.currency from public.goal_savings s where s.user_id = v_user.id
   ) c
   where c.currency <> p_currency
     and coalesce((v_rates ->> c.currency)::numeric, 0) <= 0;
@@ -1140,6 +1277,20 @@ begin
            d.amount,
            case when d.currency = p_currency then 1 else round((v_rates ->> d.currency)::numeric, 8) end)
    where d.user_id = v_user.id;
+
+  update public.goals g
+     set rate = case when g.currency = p_currency then 1 else round((v_rates ->> g.currency)::numeric, 8) end,
+         base_amount = private.converted(
+           g.amount,
+           case when g.currency = p_currency then 1 else round((v_rates ->> g.currency)::numeric, 8) end)
+   where g.user_id = v_user.id;
+
+  update public.goal_savings s
+     set rate = case when s.currency = p_currency then 1 else round((v_rates ->> s.currency)::numeric, 8) end,
+         base_amount = private.converted(
+           s.amount,
+           case when s.currency = p_currency then 1 else round((v_rates ->> s.currency)::numeric, 8) end)
+   where s.user_id = v_user.id;
 
   if v_user.currency is not null and v_user.currency <> p_currency then
     update public.budgets b
@@ -1884,6 +2035,10 @@ begin
     'opening_balance',    private.balance_before(v_target, v_from),
     'closing_balance',    private.balance_before(v_target, v_to),
     'available_balance',  private.available_balance(v_target),
+    'saved',              (select coalesce(sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end), 0)
+                             from public.goal_savings s
+                            where s.user_id = v_target and s.saved_on >= v_from and s.saved_on < v_to),
+    'saved_total',        private.goals_saved_total(v_target),
     'income_total',       (select coalesce(sum(i.base_amount), 0) from public.incomes i where i.user_id = v_target and i.month = v_from),
     'income_count',       (select count(*) from public.incomes i where i.user_id = v_target and i.month = v_from),
     'expense_total',      (select coalesce(sum(x.base_amount), 0) from me x),
@@ -1947,6 +2102,7 @@ begin
   select jsonb_build_object(
     'currency',         (select u.currency from public.users u where u.id = v_target),
     'available',        private.available_balance(v_target),
+    'saved_total',      private.goals_saved_total(v_target),
     'income_total',     (select coalesce(sum(i.base_amount), 0) from public.incomes i where i.user_id = v_target),
     'expense_total',    (select coalesce(sum(e.base_amount), 0) from public.expenses e where e.user_id = v_target),
     'income_count',     (select count(*) from public.incomes i where i.user_id = v_target),
@@ -2194,6 +2350,17 @@ begin
     join public.users u on u.id = d.user_id
     where (v_target is null or d.user_id = v_target)
       and (v_from is null or (d.occurred_on >= v_from and d.occurred_on < v_to))
+    union all
+    select case when s.direction = 'in' then 'saving' else 'saving_returned' end,
+           coalesce(nullif(u.full_name, ''), u.email), u.email, s.saved_on,
+           g.name, coalesce(s.note, ''), null::text,
+           case when s.direction = 'in' then 'set aside' else 'taken back' end,
+           s.amount, s.currency, s.rate, s.base_amount, u.currency, s.created_at
+    from public.goal_savings s
+    join public.goals g on g.id = s.goal_id
+    join public.users u on u.id = s.user_id
+    where (v_target is null or s.user_id = v_target)
+      and (v_from is null or (s.saved_on >= v_from and s.saved_on < v_to))
     order by 2, 4, 1, 14;
 end;
 $$;
@@ -2298,6 +2465,8 @@ begin
                                   where d.user_id = v_target and d.direction = 'borrowed' and d.settled_on is null), 0),
     'lent_pending',     coalesce((select sum(d.base_amount) from public.debts d
                                   where d.user_id = v_target and d.direction = 'lent' and d.settled_on is null), 0),
+    'saved_total',      private.goals_saved_total(v_target),
+    'goal_count',       (select count(*) from public.goals g where g.user_id = v_target and g.status = 'active'),
     'currency',         (select u.currency from public.users u where u.id = v_target)
   );
 end;
@@ -2429,14 +2598,1037 @@ begin
 end;
 $$;
 
+
+-- 15a. Rhythm maths. A "period" is one day, week (Monday start), month or year.
+
+create or replace function private.period_start(p_cadence text, p_date date)
+returns date
+language sql immutable
+set search_path = ''
+as $$
+  select case p_cadence
+    when 'daily'   then p_date
+    when 'weekly'  then date_trunc('week',  p_date::timestamp)::date
+    when 'monthly' then date_trunc('month', p_date::timestamp)::date
+    else                date_trunc('year',  p_date::timestamp)::date
+  end;
+$$;
+
+create or replace function private.period_length(p_cadence text)
+returns interval
+language sql immutable
+set search_path = ''
+as $$
+  select case p_cadence
+    when 'daily'   then interval '1 day'
+    when 'weekly'  then interval '1 week'
+    when 'monthly' then interval '1 month'
+    else                interval '1 year'
+  end;
+$$;
+
+-- Periods still available for saving, counting this one and the one the
+-- deadline falls in. Never less than one, so the maths always has a home.
+create or replace function private.periods_left(p_cadence text, p_from date, p_to date)
+returns integer
+language sql immutable
+set search_path = ''
+as $$
+  select greatest(1, 1 + case p_cadence
+    when 'daily'   then (p_to - p_from)
+    when 'weekly'  then ((private.period_start('weekly', p_to) - private.period_start('weekly', p_from)) / 7)
+    when 'monthly' then ((extract(year from p_to)::int * 12 + extract(month from p_to)::int)
+                         - (extract(year from p_from)::int * 12 + extract(month from p_from)::int))
+    else                (extract(year from p_to)::int - extract(year from p_from)::int)
+  end);
+$$;
+
+-- 15b. What the aims wallet holds. 'in' minus 'out', always in the main currency.
+
+create or replace function private.goal_saved(p_goal_id uuid)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select coalesce(sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end), 0)
+  from public.goal_savings s where s.goal_id = p_goal_id;
+$$;
+
+create or replace function private.goal_saved_between(p_goal_id uuid, p_from date, p_to date)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select coalesce(sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end), 0)
+  from public.goal_savings s
+  where s.goal_id = p_goal_id
+    and (p_from is null or s.saved_on >= p_from)
+    and (p_to is null or s.saved_on < p_to);
+$$;
+
+create or replace function private.goals_saved_total(p_user_id uuid)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select coalesce(sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end), 0)
+  from public.goal_savings s where s.user_id = p_user_id;
+$$;
+
+create or replace function private.goals_saved_before(p_user_id uuid, p_date date)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select coalesce(sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end), 0)
+  from public.goal_savings s where s.user_id = p_user_id and s.saved_on < p_date;
+$$;
+
+-- 15c. The plan for one aim: this period's instalment, and whether the last
+--      period was missed. The instalment is recomputed every period, so it
+--      always reflects what is really still needed in the time really left.
+
+create or replace function private.goal_plan(p_goal public.goals, p_today date default null)
+returns jsonb
+language plpgsql stable security definer
+set search_path = ''
+as $$
+declare
+  v_today       date := coalesce(p_today, private.utc_today());
+  v_first       date := private.period_start(p_goal.cadence, p_goal.start_on);
+  v_period      date := greatest(private.period_start(p_goal.cadence, v_today), v_first);
+  v_next        date := (v_period + private.period_length(p_goal.cadence))::date;
+  v_saved       numeric := private.goal_saved(p_goal.id);
+  v_remaining   numeric := greatest(round(p_goal.base_amount - v_saved, 2), 0);
+  v_left        integer := private.periods_left(p_goal.cadence, v_period, greatest(p_goal.target_on, v_period));
+  v_instalment  numeric := 0;
+  v_this_period numeric := private.goal_saved_between(p_goal.id, v_period, v_next);
+  v_prev        date := (v_period - private.period_length(p_goal.cadence))::date;
+  v_prev_needed numeric := 0;
+  v_prev_saved  numeric := 0;
+  v_missed      boolean := false;
+begin
+  if v_remaining > 0 then
+    v_instalment := least(ceil((v_remaining / v_left) * 100) / 100, v_remaining);
+  end if;
+
+  -- Did the period before this one fall short of what it was asked for?
+  if p_goal.status = 'active' and v_prev >= v_first then
+    v_prev_saved := private.goal_saved_between(p_goal.id, v_prev, v_period);
+    v_prev_needed := greatest(round(p_goal.base_amount - private.goal_saved_between(p_goal.id, null, v_prev), 2), 0);
+    if v_prev_needed > 0 then
+      v_prev_needed := least(
+        ceil((v_prev_needed / private.periods_left(p_goal.cadence, v_prev, greatest(p_goal.target_on, v_prev))) * 100) / 100,
+        v_prev_needed);
+      v_missed := v_prev_saved + 0.01 < v_prev_needed;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'saved',             v_saved,
+    'remaining',         v_remaining,
+    'progress',          case when p_goal.base_amount > 0
+                              then least(round(v_saved / p_goal.base_amount, 4), 1) else 0 end,
+    'period_start',      v_period,
+    'next_period_on',    v_next,
+    'periods_left',      v_left,
+    'instalment',        v_instalment,
+    'saved_this_period', v_this_period,
+    'due_amount',        greatest(round(v_instalment - v_this_period, 2), 0),
+    'days_left',         (p_goal.target_on - v_today),
+    'is_overdue',        (v_today > p_goal.target_on and v_remaining > 0),
+    'missed_last',       v_missed,
+    'missed_amount',     case when v_missed then round(v_prev_needed - v_prev_saved, 2) else 0 end,
+    'missed_period',     case when v_missed then v_prev else null end,
+    'needs_answer',      (v_missed and p_goal.prompted_for is distinct from v_period)
+  );
+end;
+$$;
+
+-- 15d. Guards. Aims and their wallet are written only by the functions below;
+--      these triggers keep that true even if something else gets a grant.
+
+create or replace function private.tg_goals_guard()
+returns trigger
+language plpgsql security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_at := now();
+    new.updated_at := now();
+    return new;
+  end if;
+
+  if auth.uid() is not null and old.user_id is distinct from auth.uid() then
+    raise exception 'You can only change your own aims.' using errcode = '42501';
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+
+  new.id := old.id;
+  new.user_id := old.user_id;
+  new.created_at := old.created_at;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists goals_guard on public.goals;
+create trigger goals_guard
+  before insert or update or delete on public.goals
+  for each row execute function private.tg_goals_guard();
+
+-- Wallet movements are history: they are written once and never edited, except
+-- when switching main currency re-expresses the converted amount.
+create or replace function private.tg_goal_savings_guard()
+returns trigger
+language plpgsql security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_at := now();
+    return new;
+  end if;
+
+  if current_setting('expense_tracker.recalculating', true) = 'on' then
+    if (to_jsonb(new) - 'rate' - 'base_amount') is distinct from (to_jsonb(old) - 'rate' - 'base_amount') then
+      raise exception 'Only converted amounts can change while switching currency.';
+    end if;
+    return new;
+  end if;
+
+  -- App requests carry a JWT; SQL-editor maintenance does not, as elsewhere.
+  if auth.uid() is null then
+    return new;
+  end if;
+
+  raise exception 'Saved money cannot be edited. Take it back out of the aim instead.';
+end;
+$$;
+
+drop trigger if exists goal_savings_guard on public.goal_savings;
+create trigger goal_savings_guard
+  before insert or update on public.goal_savings
+  for each row execute function private.tg_goal_savings_guard();
+
+-- The super admin sees money moving into and out of aims, like any other entry.
+create or replace function private.tg_notify_goal()
+returns trigger
+language plpgsql security definer
+set search_path = ''
+as $$
+declare
+  v_name  text;
+  v_goal  text;
+begin
+  if auth.uid() is null or current_setting('expense_tracker.recalculating', true) = 'on' then
+    return null;
+  end if;
+
+  select coalesce(nullif(u.full_name, ''), u.email) into v_name from public.users u where u.id = new.user_id;
+  select g.name into v_goal from public.goals g where g.id = new.goal_id;
+
+  insert into public.notifications (recipient_id, actor_id, type, payload)
+  select u.id, new.user_id,
+         case when new.direction = 'in' then 'goal_saved' else 'goal_withdrawn' end,
+         jsonb_build_object(
+           'record_id',  new.id,
+           'goal_id',    new.goal_id,
+           'actor_name', v_name,
+           'amount',     new.amount,
+           'currency',   new.currency,
+           'label',      v_goal,
+           'date',       new.saved_on)
+  from public.users u
+  where u.role = 'superadmin' and u.is_active and u.id <> new.user_id;
+
+  return null;
+end;
+$$;
+
+drop trigger if exists goal_savings_notify on public.goal_savings;
+create trigger goal_savings_notify
+  after insert on public.goal_savings
+  for each row execute function private.tg_notify_goal();
+
+
+-- 15e. API — creating and shaping an aim.
+
+create or replace function private.validate_goal(
+  p_name text,
+  p_amount numeric,
+  p_cadence text,
+  p_target_on date,
+  p_note text
+)
+returns void
+language plpgsql stable
+set search_path = ''
+as $$
+begin
+  if p_name is null or char_length(btrim(p_name)) = 0 then
+    raise exception 'Give this aim a name.';
+  end if;
+  if char_length(btrim(p_name)) > 60 then
+    raise exception 'That name is too long (60 characters max).';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'How much does it cost? Enter an amount greater than zero.';
+  end if;
+  if p_amount > 999999999.99 then
+    raise exception 'That amount is too large.';
+  end if;
+  if p_cadence is null or p_cadence not in ('daily', 'weekly', 'monthly', 'yearly') then
+    raise exception 'Choose whether you will save daily, weekly, monthly or yearly.';
+  end if;
+  if p_target_on is null then
+    raise exception 'When do you want to reach it?';
+  end if;
+  if p_target_on <= private.utc_today() then
+    raise exception 'Pick a date in the future.';
+  end if;
+  if p_target_on > private.utc_today() + interval '50 years' then
+    raise exception 'That date is too far away.';
+  end if;
+  if p_note is not null and char_length(p_note) > 200 then
+    raise exception 'That note is too long (200 characters max).';
+  end if;
+end;
+$$;
+
+create or replace function public.add_goal(
+  p_name text,
+  p_amount numeric,
+  p_currency text,
+  p_cadence text,
+  p_target_on date,
+  p_note text default null,
+  p_rate numeric default 1
+)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user public.users;
+  v_rate numeric;
+  v_row  public.goals;
+begin
+  v_user := private.require_user();
+
+  if v_user.currency is null then
+    raise exception 'Choose your main currency first.';
+  end if;
+
+  perform private.validate_goal(p_name, p_amount, p_cadence, p_target_on, p_note);
+  v_rate := private.resolve_rate(v_user, p_currency, p_rate);
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+  perform private.enforce_rate_limit(v_user.id);
+
+  if exists (
+    select 1 from public.goals g
+    where g.user_id = v_user.id
+      and lower(btrim(g.name)) = lower(btrim(p_name))
+      and g.status in ('active', 'paused')
+  ) then
+    raise exception 'You already have an aim called %.', btrim(p_name);
+  end if;
+
+  insert into public.goals (user_id, name, note, amount, currency, rate, base_amount, cadence, target_on)
+  values (
+    v_user.id, btrim(p_name), nullif(btrim(coalesce(p_note, '')), ''), round(p_amount, 2), p_currency, v_rate,
+    private.converted(p_amount, v_rate), p_cadence, p_target_on
+  )
+  returning * into v_row;
+
+  return to_jsonb(v_row) || jsonb_build_object('plan', private.goal_plan(v_row));
+end;
+$$;
+
+create or replace function public.update_goal(
+  p_id uuid,
+  p_name text,
+  p_amount numeric,
+  p_currency text,
+  p_cadence text,
+  p_target_on date,
+  p_note text default null,
+  p_rate numeric default 1
+)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user  public.users;
+  v_rate  numeric;
+  v_row   public.goals;
+  v_saved numeric;
+  v_base  numeric;
+begin
+  v_user := private.require_user();
+  perform private.validate_goal(p_name, p_amount, p_cadence, p_target_on, p_note);
+  v_rate := private.resolve_rate(v_user, p_currency, p_rate);
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+
+  select * into v_row from public.goals g where g.id = p_id and g.user_id = v_user.id;
+  if v_row.id is null then
+    raise exception 'That aim no longer exists.';
+  end if;
+  if v_row.status = 'cancelled' then
+    raise exception 'This aim was cancelled. Start a new one instead.';
+  end if;
+
+  v_saved := private.goal_saved(v_row.id);
+  v_base := private.converted(p_amount, v_rate);
+  if v_base < v_saved then
+    raise exception 'You have already set aside % for this aim. Take some back out before lowering the target.',
+      coalesce(v_user.currency, '') || ' ' || to_char(v_saved, 'FM999999999990.00');
+  end if;
+
+  update public.goals g
+     set name = btrim(p_name),
+         note = nullif(btrim(coalesce(p_note, '')), ''),
+         amount = round(p_amount, 2),
+         currency = p_currency,
+         rate = v_rate,
+         base_amount = v_base,
+         cadence = p_cadence,
+         target_on = p_target_on,
+         status = case when g.status = 'achieved' and v_base > v_saved then 'active' else g.status end,
+         achieved_on = case when g.status = 'achieved' and v_base > v_saved then null else g.achieved_on end,
+         prompted_for = null
+   where g.id = v_row.id
+  returning * into v_row;
+
+  return to_jsonb(v_row) || jsonb_build_object('plan', private.goal_plan(v_row));
+end;
+$$;
+
+-- Aims with money in them are never deleted — cancelling releases the money and
+-- keeps the history. Delete only clears an aim nothing was ever saved into.
+create or replace function public.delete_goal(p_id uuid)
+returns void
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user public.users;
+  v_row  public.goals;
+begin
+  v_user := private.require_user();
+
+  select * into v_row from public.goals g where g.id = p_id and g.user_id = v_user.id;
+  if v_row.id is null then
+    return;
+  end if;
+
+  if exists (select 1 from public.goal_savings s where s.goal_id = v_row.id) then
+    raise exception 'This aim has saving history. Cancel it instead — your money goes back to your balance.';
+  end if;
+
+  delete from public.goals g where g.id = v_row.id;
+end;
+$$;
+
+create or replace function public.set_goal_status(p_id uuid, p_status text)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user  public.users;
+  v_row   public.goals;
+  v_saved numeric;
+begin
+  v_user := private.require_user();
+
+  if p_status is null or p_status not in ('active', 'paused', 'achieved', 'cancelled') then
+    raise exception 'Unknown status.';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+
+  select * into v_row from public.goals g where g.id = p_id and g.user_id = v_user.id;
+  if v_row.id is null then
+    raise exception 'That aim no longer exists.';
+  end if;
+  if v_row.status = 'cancelled' and p_status <> 'cancelled' then
+    raise exception 'This aim was cancelled. Start a new one instead.';
+  end if;
+
+  -- Cancelling hands the money back: it returns to the available balance.
+  if p_status = 'cancelled' then
+    v_saved := private.goal_saved(v_row.id);
+    if v_saved > 0 then
+      insert into public.goal_savings (goal_id, user_id, direction, amount, currency, rate, base_amount, saved_on, note)
+      values (v_row.id, v_user.id, 'out', v_saved, coalesce(v_user.currency, v_row.currency), 1, v_saved,
+              private.utc_today(), 'Aim cancelled');
+    end if;
+  end if;
+
+  update public.goals g
+     set status = p_status,
+         achieved_on = case
+           when p_status = 'achieved' then coalesce(g.achieved_on, private.utc_today())
+           when p_status = 'active' then null
+           else g.achieved_on end,
+         prompted_for = null
+   where g.id = v_row.id
+  returning * into v_row;
+
+  return to_jsonb(v_row) || jsonb_build_object('plan', private.goal_plan(v_row));
+end;
+$$;
+
+-- A missed period asks one question: more time, or a bigger instalment?
+--   'extend' pushes the deadline out and keeps the instalment roughly as it was
+--   'keep'   holds the deadline and lets the instalment grow on its own
+create or replace function public.resolve_goal_miss(p_id uuid, p_action text, p_periods integer default 1)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user   public.users;
+  v_row    public.goals;
+  v_today  date := private.utc_today();
+  v_period date;
+  v_from   date;
+begin
+  v_user := private.require_user();
+
+  if p_action is null or p_action not in ('extend', 'keep') then
+    raise exception 'Choose whether to add time or keep the date.';
+  end if;
+  if p_action = 'extend' and (p_periods is null or p_periods < 1 or p_periods > 120) then
+    raise exception 'Add between 1 and 120 periods.';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+
+  select * into v_row from public.goals g where g.id = p_id and g.user_id = v_user.id;
+  if v_row.id is null then
+    raise exception 'That aim no longer exists.';
+  end if;
+
+  v_period := greatest(private.period_start(v_row.cadence, v_today),
+                       private.period_start(v_row.cadence, v_row.start_on));
+
+  if p_action = 'extend' then
+    v_from := greatest(v_row.target_on, v_today);
+    update public.goals g
+       set target_on = (v_from + (private.period_length(g.cadence) * p_periods))::date,
+           extended_by = least(g.extended_by + p_periods, 1000),
+           prompted_for = v_period,
+           status = case when g.status = 'paused' then 'active' else g.status end
+     where g.id = v_row.id
+    returning * into v_row;
+  else
+    update public.goals g set prompted_for = v_period where g.id = v_row.id returning * into v_row;
+  end if;
+
+  return to_jsonb(v_row) || jsonb_build_object('plan', private.goal_plan(v_row));
+end;
+$$;
+
+
+-- 15f. API — the aims wallet. Setting money aside takes it out of the balance;
+--      taking it back puts it straight back in.
+
+create or replace function public.save_to_goal(
+  p_id uuid,
+  p_amount numeric default null,
+  p_currency text default null,
+  p_rate numeric default 1,
+  p_saved_on date default null,
+  p_note text default null
+)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user      public.users;
+  v_row       public.goals;
+  v_plan      jsonb;
+  v_amount    numeric;
+  v_currency  text;
+  v_rate      numeric;
+  v_base      numeric;
+  v_remaining numeric;
+  v_on        date := coalesce(p_saved_on, private.utc_today());
+  v_saving    public.goal_savings;
+begin
+  v_user := private.require_user();
+
+  if v_user.currency is null then
+    raise exception 'Choose your main currency first.';
+  end if;
+  if v_on > private.utc_today() then
+    raise exception 'You cannot save money on a future date.';
+  end if;
+  if v_on < date '2020-01-01' then
+    raise exception 'That date is too far in the past.';
+  end if;
+  if p_note is not null and char_length(p_note) > 200 then
+    raise exception 'That note is too long (200 characters max).';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+  perform private.enforce_rate_limit(v_user.id);
+
+  select * into v_row from public.goals g where g.id = p_id and g.user_id = v_user.id;
+  if v_row.id is null then
+    raise exception 'That aim no longer exists.';
+  end if;
+  if v_row.status = 'cancelled' then
+    raise exception 'This aim was cancelled.';
+  end if;
+
+  v_plan := private.goal_plan(v_row);
+  v_remaining := (v_plan ->> 'remaining')::numeric;
+
+  if v_remaining <= 0 then
+    raise exception 'This aim is already fully funded.';
+  end if;
+
+  -- No amount given means "today's instalment", in your main currency.
+  if p_amount is null then
+    v_amount := (v_plan ->> 'due_amount')::numeric;
+    if v_amount <= 0 then
+      raise exception 'This period''s saving is already done.';
+    end if;
+    v_currency := v_user.currency;
+    v_rate := 1;
+    v_base := v_amount;
+  else
+    if p_amount <= 0 then
+      raise exception 'Enter an amount greater than zero.';
+    end if;
+    if p_amount > 999999999.99 then
+      raise exception 'That amount is too large.';
+    end if;
+    v_amount := round(p_amount, 2);
+    v_currency := coalesce(p_currency, v_user.currency);
+    v_rate := private.resolve_rate(v_user, v_currency, p_rate);
+    v_base := private.converted(v_amount, v_rate);
+  end if;
+
+  if v_base > v_remaining + 0.005 then
+    raise exception 'This aim only needs % more.',
+      v_user.currency || ' ' || to_char(v_remaining, 'FM999999999990.00');
+  end if;
+
+  -- Saving is moving money you actually have, so the same rule applies.
+  perform private.assert_can_spend(v_user, v_base);
+
+  if exists (
+    select 1 from public.goal_savings s
+    where s.goal_id = v_row.id
+      and s.direction = 'in'
+      and s.amount = v_amount
+      and s.currency = v_currency
+      and s.saved_on = v_on
+      and s.created_at > now() - interval '15 seconds'
+  ) then
+    raise exception 'That saving was recorded a moment ago, so the duplicate was skipped.';
+  end if;
+
+  insert into public.goal_savings (goal_id, user_id, direction, amount, currency, rate, base_amount, saved_on, period_start, note)
+  values (v_row.id, v_user.id, 'in', v_amount, v_currency, v_rate, v_base, v_on,
+          private.period_start(v_row.cadence, v_on), nullif(btrim(coalesce(p_note, '')), ''))
+  returning * into v_saving;
+
+  update public.goals g
+     set status = case when private.goal_saved(g.id) >= g.base_amount then 'achieved' else g.status end,
+         achieved_on = case when private.goal_saved(g.id) >= g.base_amount
+                            then coalesce(g.achieved_on, private.utc_today()) else g.achieved_on end
+   where g.id = v_row.id
+  returning * into v_row;
+
+  -- Covering this period in full is an answer in itself, so the "you missed
+  -- last time" question stops. A part payment leaves the question standing.
+  v_plan := private.goal_plan(v_row);
+  if (v_plan ->> 'due_amount')::numeric <= 0 then
+    update public.goals g
+       set prompted_for = (v_plan ->> 'period_start')::date
+     where g.id = v_row.id
+    returning * into v_row;
+  end if;
+
+  -- A finished aim is worth saying out loud, once.
+  if v_row.status = 'achieved' then
+    insert into public.notifications (recipient_id, actor_id, type, payload, dedupe_key)
+    values (v_user.id, v_user.id, 'goal_achieved',
+            jsonb_build_object('goal_id', v_row.id, 'label', v_row.name,
+                               'amount', v_row.amount, 'currency', v_row.currency),
+            'goal-achieved:' || v_row.id::text)
+    on conflict do nothing;
+  end if;
+
+  return to_jsonb(v_row)
+    || jsonb_build_object('plan', private.goal_plan(v_row), 'saving', to_jsonb(v_saving));
+end;
+$$;
+
+create or replace function public.withdraw_from_goal(
+  p_id uuid,
+  p_amount numeric default null,
+  p_note text default null
+)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user   public.users;
+  v_row    public.goals;
+  v_saved  numeric;
+  v_amount numeric;
+begin
+  v_user := private.require_user();
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+
+  select * into v_row from public.goals g where g.id = p_id and g.user_id = v_user.id;
+  if v_row.id is null then
+    raise exception 'That aim no longer exists.';
+  end if;
+
+  v_saved := private.goal_saved(v_row.id);
+  if v_saved <= 0 then
+    raise exception 'There is nothing set aside in this aim.';
+  end if;
+
+  v_amount := round(coalesce(p_amount, v_saved), 2);
+  if v_amount <= 0 then
+    raise exception 'Enter an amount greater than zero.';
+  end if;
+  if v_amount > v_saved + 0.005 then
+    raise exception 'This aim only holds %.',
+      coalesce(v_user.currency, v_row.currency) || ' ' || to_char(v_saved, 'FM999999999990.00');
+  end if;
+  if p_note is not null and char_length(p_note) > 200 then
+    raise exception 'That note is too long (200 characters max).';
+  end if;
+
+  insert into public.goal_savings (goal_id, user_id, direction, amount, currency, rate, base_amount, saved_on, period_start, note)
+  values (v_row.id, v_user.id, 'out', least(v_amount, v_saved), coalesce(v_user.currency, v_row.currency), 1,
+          least(v_amount, v_saved), private.utc_today(),
+          private.period_start(v_row.cadence, private.utc_today()), nullif(btrim(coalesce(p_note, '')), ''));
+
+  update public.goals g
+     set status = case when g.status = 'achieved' and private.goal_saved(g.id) < g.base_amount
+                       then 'active' else g.status end,
+         achieved_on = case when g.status = 'achieved' and private.goal_saved(g.id) < g.base_amount
+                            then null else g.achieved_on end
+   where g.id = v_row.id
+  returning * into v_row;
+
+  return to_jsonb(v_row) || jsonb_build_object('plan', private.goal_plan(v_row));
+end;
+$$;
+
+
+-- 15g. API — reading aims, their wallet and what is due.
+
+create or replace function public.list_goals(p_user_id uuid default null)
+returns table (
+  id uuid, name text, note text, amount numeric, currency text, rate numeric, base_amount numeric,
+  cadence text, start_on date, target_on date, status text, achieved_on date, extended_by integer,
+  created_at timestamptz, saved numeric, remaining numeric, progress numeric, instalment numeric,
+  due_amount numeric, saved_this_period numeric, period_start date, next_period_on date,
+  periods_left integer, days_left integer, is_overdue boolean, missed_last boolean,
+  missed_amount numeric, missed_period date, needs_answer boolean
+)
+language plpgsql stable security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_user   public.users;
+  v_target uuid;
+begin
+  v_user := private.require_user();
+  v_target := private.resolve_target(v_user, p_user_id);
+
+  return query
+    select
+      g.id, g.name, g.note, g.amount, g.currency, g.rate, g.base_amount,
+      g.cadence, g.start_on, g.target_on, g.status, g.achieved_on, g.extended_by, g.created_at,
+      (p.plan ->> 'saved')::numeric,
+      (p.plan ->> 'remaining')::numeric,
+      (p.plan ->> 'progress')::numeric,
+      (p.plan ->> 'instalment')::numeric,
+      (p.plan ->> 'due_amount')::numeric,
+      (p.plan ->> 'saved_this_period')::numeric,
+      (p.plan ->> 'period_start')::date,
+      (p.plan ->> 'next_period_on')::date,
+      (p.plan ->> 'periods_left')::integer,
+      (p.plan ->> 'days_left')::integer,
+      (p.plan ->> 'is_overdue')::boolean,
+      (p.plan ->> 'missed_last')::boolean,
+      (p.plan ->> 'missed_amount')::numeric,
+      (p.plan ->> 'missed_period')::date,
+      (p.plan ->> 'needs_answer')::boolean
+    from public.goals g
+    cross join lateral (select private.goal_plan(g) as plan) p
+    where g.user_id = v_target
+    order by
+      case g.status when 'active' then 0 when 'paused' then 1 when 'achieved' then 2 else 3 end,
+      g.target_on,
+      g.created_at desc;
+end;
+$$;
+
+create or replace function public.list_goal_savings(
+  p_goal_id uuid default null,
+  p_limit integer default 50,
+  p_user_id uuid default null
+)
+returns table (
+  id uuid, goal_id uuid, goal_name text, direction text, amount numeric, currency text,
+  rate numeric, base_amount numeric, saved_on date, period_start date, note text, created_at timestamptz
+)
+language plpgsql stable security definer
+set search_path = ''
+as $$
+#variable_conflict use_column
+declare
+  v_user   public.users;
+  v_target uuid;
+begin
+  v_user := private.require_user();
+  v_target := private.resolve_target(v_user, p_user_id);
+
+  return query
+    select s.id, s.goal_id, g.name, s.direction, s.amount, s.currency, s.rate, s.base_amount,
+           s.saved_on, s.period_start, s.note, s.created_at
+    from public.goal_savings s
+    join public.goals g on g.id = s.goal_id
+    where s.user_id = v_target
+      and (p_goal_id is null or s.goal_id = p_goal_id)
+    order by s.saved_on desc, s.created_at desc
+    limit least(greatest(coalesce(p_limit, 50), 1), 200);
+end;
+$$;
+
+-- The aims wallet at a glance: what is set aside, what is due right now.
+create or replace function public.get_goal_summary(p_user_id uuid default null)
+returns jsonb
+language plpgsql stable security definer
+set search_path = ''
+as $$
+declare
+  v_user   public.users;
+  v_target uuid;
+  v_out    jsonb;
+begin
+  v_user := private.require_user();
+  v_target := private.resolve_target(v_user, p_user_id);
+
+  select jsonb_build_object(
+    'wallet_total',  coalesce(private.goals_saved_total(v_target), 0),
+    'target_total',  coalesce(sum(g.base_amount) filter (where g.status in ('active', 'paused')), 0),
+    'saved_total',   coalesce(sum((p.plan ->> 'saved')::numeric) filter (where g.status in ('active', 'paused')), 0),
+    'active_count',  count(*) filter (where g.status = 'active'),
+    'paused_count',  count(*) filter (where g.status = 'paused'),
+    'achieved_count',count(*) filter (where g.status = 'achieved'),
+    'due_amount',    coalesce(sum((p.plan ->> 'due_amount')::numeric) filter (where g.status = 'active'), 0),
+    'due_count',     count(*) filter (where g.status = 'active' and (p.plan ->> 'due_amount')::numeric > 0),
+    'behind_count',  count(*) filter (where g.status = 'active' and (p.plan ->> 'missed_last')::boolean),
+    'answer_count',  count(*) filter (where g.status = 'active' and (p.plan ->> 'needs_answer')::boolean),
+    'next_due_on',   min((p.plan ->> 'next_period_on')::date) filter (where g.status = 'active'),
+    'currency',      (select u.currency from public.users u where u.id = v_target)
+  )
+  into v_out
+  from public.goals g
+  cross join lateral (select private.goal_plan(g) as plan) p
+  where g.user_id = v_target;
+
+  return v_out;
+end;
+$$;
+
+-- 15h. Reminders. Built when the app asks (and nightly if pg_cron is enabled),
+--      one per aim per period — dedupe_key makes repeats impossible.
+
+create or replace function private.sync_goal_reminders(p_user_id uuid)
+returns integer
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_made     integer := 0;
+  v_goal     public.goals;
+  v_plan     jsonb;
+  v_currency text;
+  v_type     text;
+begin
+  select u.currency into v_currency from public.users u where u.id = p_user_id and u.is_active;
+  if v_currency is null then
+    return 0;
+  end if;
+
+  for v_goal in select * from public.goals g where g.user_id = p_user_id and g.status = 'active' loop
+    v_plan := private.goal_plan(v_goal);
+    continue when (v_plan ->> 'due_amount')::numeric <= 0 and not (v_plan ->> 'missed_last')::boolean;
+
+    v_type := case when (v_plan ->> 'missed_last')::boolean then 'goal_missed' else 'goal_due' end;
+
+    insert into public.notifications (recipient_id, actor_id, type, payload, dedupe_key)
+    values (
+      p_user_id, p_user_id, v_type,
+      jsonb_build_object(
+        'goal_id',       v_goal.id,
+        'label',         v_goal.name,
+        'amount',        (v_plan ->> 'due_amount')::numeric,
+        'currency',      v_currency,
+        'cadence',       v_goal.cadence,
+        'date',          v_plan ->> 'period_start',
+        'missed_amount', (v_plan ->> 'missed_amount')::numeric),
+      v_type || ':' || v_goal.id::text || ':' || (v_plan ->> 'period_start'))
+    on conflict do nothing;
+
+    if found then
+      v_made := v_made + 1;
+    end if;
+  end loop;
+
+  return v_made;
+end;
+$$;
+
+-- Called by the app on open: builds this period's reminders, then hands back
+-- the aims that still want something from you.
+create or replace function public.sync_my_goal_reminders()
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user public.users;
+begin
+  v_user := private.require_user();
+  perform private.sync_goal_reminders(v_user.id);
+
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'goal_id',       g.id,
+             'name',          g.name,
+             'cadence',       g.cadence,
+             'due_amount',    (p.plan ->> 'due_amount')::numeric,
+             'instalment',    (p.plan ->> 'instalment')::numeric,
+             'missed_last',   (p.plan ->> 'missed_last')::boolean,
+             'missed_amount', (p.plan ->> 'missed_amount')::numeric,
+             'needs_answer',  (p.plan ->> 'needs_answer')::boolean,
+             'period_start',  p.plan ->> 'period_start',
+             'target_on',     g.target_on)
+             order by (p.plan ->> 'needs_answer')::boolean desc, g.target_on)
+    from public.goals g
+    cross join lateral (select private.goal_plan(g) as plan) p
+    where g.user_id = v_user.id
+      and g.status = 'active'
+      and ((p.plan ->> 'due_amount')::numeric > 0 or (p.plan ->> 'needs_answer')::boolean)
+  ), '[]'::jsonb);
+end;
+$$;
+
+-- For a nightly scheduler (pg_cron). Not reachable from the app.
+create or replace function public.generate_goal_reminders()
+returns integer
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_id   uuid;
+  v_made integer := 0;
+begin
+  for v_id in
+    select distinct g.user_id from public.goals g where g.status = 'active'
+  loop
+    v_made := v_made + private.sync_goal_reminders(v_id);
+  end loop;
+  return v_made;
+end;
+$$;
+
+-- 15i. Web-push endpoints (stored now so reminders can be pushed later).
+
+create or replace function public.save_push_subscription(
+  p_endpoint text,
+  p_p256dh text,
+  p_auth text,
+  p_user_agent text default null
+)
+returns void
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user public.users;
+begin
+  v_user := private.require_user();
+
+  if p_endpoint is null or char_length(p_endpoint) < 10 or char_length(p_endpoint) > 1000
+     or p_p256dh is null or p_auth is null then
+    raise exception 'That push subscription is not valid.';
+  end if;
+
+  insert into public.push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
+  values (v_user.id, p_endpoint, left(p_p256dh, 300), left(p_auth, 300), left(p_user_agent, 300))
+  on conflict (endpoint) do update
+    set user_id = excluded.user_id,
+        p256dh = excluded.p256dh,
+        auth = excluded.auth,
+        user_agent = excluded.user_agent,
+        last_seen_at = now();
+end;
+$$;
+
+create or replace function public.delete_push_subscription(p_endpoint text)
+returns void
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user public.users;
+begin
+  v_user := private.require_user();
+  delete from public.push_subscriptions s where s.endpoint = p_endpoint and s.user_id = v_user.id;
+end;
+$$;
+
+-- Nightly reminder build, only if pg_cron is enabled on this project
+-- (Supabase → Database → Extensions → pg_cron). Safe to skip.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    if exists (select 1 from cron.job where jobname = 'recordin-goal-reminders') then
+      perform cron.unschedule('recordin-goal-reminders');
+    end if;
+    perform cron.schedule('recordin-goal-reminders', '5 0 * * *', 'select public.generate_goal_reminders();');
+  end if;
+end $$;
+
+
 -- -----------------------------------------------------------------------------
--- 15. Privileges
+-- 16. Privileges
 -- -----------------------------------------------------------------------------
 
 -- Tables: read-only for signed-in users (RLS decides which rows), nothing for anon.
-revoke all on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.budgets, public.notifications
+revoke all on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.budgets,
+  public.goals, public.goal_savings, public.push_subscriptions, public.notifications
   from anon, authenticated;
-grant select on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.budgets, public.notifications
+grant select on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.budgets,
+  public.goals, public.goal_savings, public.push_subscriptions, public.notifications
   to authenticated;
 
 -- Private helpers: nobody calls these directly; RLS needs is_superadmin().
@@ -2446,6 +3638,9 @@ grant execute on function private.is_superadmin() to authenticated;
 -- Auth triggers are not API functions.
 revoke all on function public.handle_new_auth_user() from public, anon, authenticated;
 revoke all on function public.handle_auth_user_updated() from public, anon, authenticated;
+
+-- The nightly reminder builder is for the scheduler, not for the app.
+revoke all on function public.generate_goal_reminders() from public, anon, authenticated;
 
 -- API functions: signed-in users only.
 do $$
@@ -2485,7 +3680,20 @@ begin
     'public.export_transactions(uuid, date, boolean)',
     'public.list_notifications(integer, timestamptz)',
     'public.get_unread_notification_count()',
-    'public.mark_notifications_read(uuid[])'
+    'public.mark_notifications_read(uuid[])',
+    'public.add_goal(text, numeric, text, text, date, text, numeric)',
+    'public.update_goal(uuid, text, numeric, text, text, date, text, numeric)',
+    'public.delete_goal(uuid)',
+    'public.set_goal_status(uuid, text)',
+    'public.resolve_goal_miss(uuid, text, integer)',
+    'public.save_to_goal(uuid, numeric, text, numeric, date, text)',
+    'public.withdraw_from_goal(uuid, numeric, text)',
+    'public.list_goals(uuid)',
+    'public.list_goal_savings(uuid, integer, uuid)',
+    'public.get_goal_summary(uuid)',
+    'public.sync_my_goal_reminders()',
+    'public.save_push_subscription(text, text, text, text)',
+    'public.delete_push_subscription(text)'
   ]
   loop
     execute format('revoke all on function %s from public, anon', fn);
@@ -2495,7 +3703,7 @@ end $$;
 
 
 -- -----------------------------------------------------------------------------
--- 16. Backfill accounts that signed up before this script was run
+-- 17. Backfill accounts that signed up before this script was run
 --     (the earliest one becomes superadmin if there isn't one yet)
 -- -----------------------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 import type { NotificationItem } from "@/lib/types";
 
-export type NotificationTone = "expense" | "income" | "debt" | "user";
+export type NotificationTone = "expense" | "income" | "debt" | "goal" | "user";
 
 export interface NotificationText {
   tone: NotificationTone;
@@ -11,6 +11,10 @@ export interface NotificationText {
 type MoneyFormatter = (amount: number, options?: { currency?: string }) => string;
 
 const join = (...parts: (string | undefined | null)[]) => parts.filter(Boolean).join(" · ");
+
+/** "this week" for the rhythm an aim is saved at. */
+const cadenceWhen = (cadence: unknown) =>
+  ({ daily: "today", weekly: "this week", monthly: "this month", yearly: "this year" })[String(cadence)] ?? "";
 
 /** Human-readable text for an activity notification (amounts in the entry's own currency). */
 export function describeNotification(item: NotificationItem, money: MoneyFormatter): NotificationText {
@@ -57,6 +61,27 @@ export function describeNotification(item: NotificationItem, money: MoneyFormatt
       };
     case "debt_reopened":
       return { tone: "debt", title: `${who} marked a debt as pending again`, detail: join(amount, label) };
+    case "goal_due":
+      return {
+        tone: "goal",
+        title: `Time to save for ${label || "your aim"}`,
+        detail: join(amount, cadenceWhen(item.payload.cadence)),
+      };
+    case "goal_missed":
+      return {
+        tone: "goal",
+        title: `${label || "An aim"} fell behind`,
+        detail: join(
+          item.payload.missed_amount ? `short by ${money(Number(item.payload.missed_amount), { currency })}` : "",
+          "add time or save a bit more",
+        ),
+      };
+    case "goal_saved":
+      return { tone: "goal", title: `${who} set money aside`, detail: join(amount, label) };
+    case "goal_withdrawn":
+      return { tone: "goal", title: `${who} took money back out`, detail: join(amount, label) };
+    case "goal_achieved":
+      return { tone: "goal", title: `${label || "Your aim"} is fully funded 🎉`, detail: amount };
     case "user_joined":
       return { tone: "user", title: `${who} created an account`, detail: item.payload.email ?? "New member" };
     default:

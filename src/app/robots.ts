@@ -17,6 +17,7 @@ export default function robots(): MetadataRoute.Robots {
           "/income",
           "/debts",
           "/budgets",
+          "/goals",
           "/reports",
           "/notifications",
           "/profile",
