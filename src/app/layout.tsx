@@ -5,9 +5,17 @@ import { cookies, headers } from "next/headers";
 import { ServiceWorker } from "@/components/pwa/service-worker";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { APP_DESCRIPTION, APP_KEYWORDS, APP_NAME, APP_TAGLINE, PRIVACY_COOKIE } from "@/lib/constants";
+import {
+  APP_DESCRIPTION,
+  APP_KEYWORDS,
+  APP_NAME,
+  APP_TAGLINE,
+  PRIVACY_COOKIE,
+} from "@/lib/constants";
 import { env } from "@/lib/env";
 import { cn } from "@/lib/utils";
+
+import { Analytics } from "@vercel/analytics/next";
 
 import "./globals.css";
 
@@ -33,7 +41,11 @@ export const metadata: Metadata = {
     locale: "en_US",
   },
   twitter: { card: "summary_large_image", title, description: APP_DESCRIPTION },
-  appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "black-translucent" },
+  appleWebApp: {
+    capable: true,
+    title: APP_NAME,
+    statusBarStyle: "black-translucent",
+  },
   formatDetection: { telephone: false, email: false, address: false },
   robots: { index: true, follow: true },
 };
@@ -46,18 +58,30 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   // Reading request headers renders every route per request, which the
   // nonce-based Content-Security-Policy from src/proxy.ts requires.
   await headers();
   const privacy = (await cookies()).get(PRIVACY_COOKIE)?.value === "on";
 
   return (
-    <html lang="en" className={cn("dark", sans.variable, mono.variable)} data-privacy={privacy ? "on" : "off"}>
+    <html
+      lang="en"
+      className={cn("dark", sans.variable, mono.variable)}
+      data-privacy={privacy ? "on" : "off"}
+    >
       <body className="min-h-svh">
         <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
         <ServiceWorker />
-        <Toaster position="top-center" offset={{ top: "calc(env(safe-area-inset-top) + 12px)" }} />
+        <Toaster
+          position="top-center"
+          offset={{ top: "calc(env(safe-area-inset-top) + 12px)" }}
+        />
+        <Analytics />
       </body>
     </html>
   );
