@@ -23,8 +23,9 @@ Built with Next.js 16, shadcn/ui, Tailwind CSS 4 and Supabase. Works on phones (
 | **Reports** | This-month report (daily chart, categories, highlights, payment methods) and an overall report (month-by-month, all-time categories) |
 | **Super admin** | Sees every account (read-only), downloads CSVs per person or for everyone, can deactivate an account. **Can't edit anyone else's entries** |
 | **Notifications** | The super admin is notified when someone adds, edits, settles or deletes an entry or joins. A toast appears right after signing in |
-| **Borrow & lend** | Record money you borrowed (you owe) or lent (you're owed), with an optional return date. Mark entries as paid back / received at any time — even after the 30-minute lock — and see overdue ones |
-| **Currencies** | Every user picks a main currency on first sign-in (changeable in Profile). Any entry can be added in another currency (USD, EUR, AED…) and is converted with the day's exchange rate; totals and reports are always in the main currency |
+| **Borrow & lend** | Record money you borrowed (you owe) or lent (you're owed), with an optional return date. Record money handed back at any time — even after the 30-minute lock — in full, half, or any amount in any currency; each repayment is kept with what is still owed, and can be undone within 30 minutes. See overdue ones |
+| **Currencies** | Every user picks a main currency on first sign-in (changeable in Profile). Any entry can be added in another currency (USD, EUR, AED…) and is converted at the live exchange rate; totals and reports are always in the main currency |
+| **Exchange rates** | Live rates between all supported currencies, refreshing every 30 seconds while open: a converter with swap, a searchable list in any base currency with movement since you opened it, and a glance card on Home |
 | **Aims** | Save for something: give it a cost, a date and a rhythm (daily, weekly, monthly or yearly). RecordIn works out the instalment — *what's left ÷ periods left* — and asks for it each period. Money you set aside leaves your available balance and waits in the **aims wallet**; taking it back puts it straight back. Miss a period and it asks one question: add time, or keep the date and save a bit more |
 | **Install** | A full progressive web app: install it on a phone or desktop from Profile → Install, launch it full-screen, and see a proper offline page instead of a browser error |
 
@@ -121,7 +122,7 @@ About "obfuscation": production builds are already minified and ship without sou
 - **Edit window:** change `private.edit_window()` in `supabase/schema.sql` and run the file again. The app reads the value from the database.
 - **Categories:** edit the seed list in `supabase/schema.sql` and the icon map in `src/lib/categories.ts`.
 - **App name:** `src/lib/constants.ts`.
-- **Currencies:** the supported list is in `src/lib/currencies.ts`. Rates come from [open.er-api.com](https://open.er-api.com) (free, no key), are fetched on the server only and cached for 6 hours. Each entry stores the amount as typed, the rate used and the converted amount; switching main currency re-converts with fresh rates.
+- **Currencies:** the supported list is in `src/lib/currencies.ts`. Rates come from Coinbase's public exchange-rates endpoint (live, free, no key; cached for 30 seconds), falling back to [open.er-api.com](https://open.er-api.com) (updated daily; cached for an hour) if it can't be reached or is missing a currency. They are fetched on the server only, and the rates page, the forms and currency switching all read the same snapshot (`src/lib/rates.ts`). Each entry stores the amount as typed, the rate used and the converted amount; switching main currency re-converts with fresh rates.
 - **Confirmation links opened on another device:** by default a link only works in the browser that requested it. To allow any device, change the Supabase email templates to link to
   `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email` (use `type=recovery` in the reset-password template).
 

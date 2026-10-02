@@ -8,6 +8,7 @@ import { UserAvatar } from "@/components/user-avatar";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { categoryIcon } from "@/lib/categories";
 import { formatDayHeading, formatTime } from "@/lib/dates";
+import { isPartPaid } from "@/lib/debts";
 import type { Transaction } from "@/lib/transactions";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +16,13 @@ export function transactionSubtitle(tx: Transaction): string {
   if (tx.kind === "expense") return tx.expense.category_name;
   if (tx.kind === "income") return "Income";
   if (tx.event === "settle") return "Borrow & lend · settled";
-  return tx.debt.settled_on ? "Borrow & lend · settled" : "Borrow & lend · pending";
+  if (tx.event === "payment") {
+    // Repayments are newest first, so the first one is what settled it.
+    const finished = tx.debt.settled_on && tx.debt.payments[0]?.id === tx.payment.id;
+    return finished ? "Borrow & lend · paid in full" : "Borrow & lend · part repayment";
+  }
+  if (tx.debt.settled_on) return "Borrow & lend · settled";
+  return isPartPaid(tx.debt) ? "Borrow & lend · part paid" : "Borrow & lend · pending";
 }
 
 export function TransactionRow({

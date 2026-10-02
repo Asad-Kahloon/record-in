@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 
 import { conversionFor } from "@/lib/conversion";
 import { friendlyDbError } from "@/lib/errors";
+import { getRate } from "@/lib/rates";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/types";
-import { debtInput, debtUpdateInput, fieldErrors, idSchema, settleInput } from "@/lib/validation";
+import { debtInput, debtPaymentInput, debtUpdateInput, fieldErrors, idSchema, settleInput } from "@/lib/validation";
 
 export interface DebtFormValues {
   direction: string;
@@ -79,6 +80,68 @@ export async function deleteDebtAction(id: string): Promise<ActionResult> {
 
   revalidatePath("/", "layout");
   return { ok: true, data: null, message: "Deleted" };
+}
+
+export interface DebtPaymentValues {
+  debtId: string;
+  amount: string;
+  currency: string;
+  paidOn: string;
+  note: string;
+}
+
+/** Money handed back on a debt — all of it or a part, in any currency. Works even after the edit window. */
+export async function addDebtPaymentAction(
+  input: DebtPaymentValues,
+): Promise<ActionResult<{ paymentId: string; remaining: number; settled: boolean }>> {
+  const parsed = debtPaymentInput.safeParse(input);
+  if (!parsed.success) return { ok: false, error: INVALID, fieldErrors: fieldErrors(parsed.error) };
+
+  const supabase = await createClient();
+
+  // A repayment counts against the debt in the debt's own currency, so the
+  // rate is looked up from the stored debt, never taken from the browser.
+  const { data: debts, error: listError } = await supabase.rpc("list_debts", { p_user_id: null });
+  if (listError) return { ok: false, error: friendlyDbError(listError) };
+  const debt = (debts as { id: string; currency: string }[] | null)?.find((d) => d.id === parsed.data.debtId);
+  if (!debt) return { ok: false, error: "That entry no longer exists." };
+
+  const rate = await getRate(parsed.data.currency, debt.currency);
+  if (rate === null) {
+    return {
+      ok: false,
+      error: `Couldn't get today's ${parsed.data.currency} → ${debt.currency} exchange rate. Please try again in a moment.`,
+    };
+  }
+
+  const { data, error } = await supabase.rpc("add_debt_payment", {
+    p_debt_id: parsed.data.debtId,
+    p_amount: parsed.data.amount,
+    p_currency: parsed.data.currency,
+    p_rate: rate,
+    p_paid_on: parsed.data.paidOn,
+    p_note: parsed.data.note || null,
+  });
+  if (error) return { ok: false, error: friendlyDbError(error) };
+
+  revalidatePath("/", "layout");
+  return {
+    ok: true,
+    data: { paymentId: data.payment.id, remaining: Number(data.remaining), settled: Boolean(data.settled) },
+  };
+}
+
+/** Undo a repayment recorded by mistake — only within its edit window. */
+export async function deleteDebtPaymentAction(id: string): Promise<ActionResult> {
+  const parsed = idSchema.safeParse(id);
+  if (!parsed.success) return { ok: false, error: "Invalid entry." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("delete_debt_payment", { p_id: parsed.data });
+  if (error) return { ok: false, error: friendlyDbError(error) };
+
+  revalidatePath("/", "layout");
+  return { ok: true, data: null, message: "Repayment undone" };
 }
 
 /** Mark as paid back / received, or back to pending. Works even after the edit window. */

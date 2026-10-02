@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
 import { DailySpendChart } from "@/components/charts/daily-spend-chart";
 import { ActivityBanner, ActivityCard } from "@/components/dashboard/activity";
@@ -9,7 +10,9 @@ import { BudgetOverview } from "@/components/home/budget-overview";
 import { InsightsGrid } from "@/components/home/insights-grid";
 import { QuickActions } from "@/components/home/quick-actions";
 import { MonthSwitcher } from "@/components/month-switcher";
+import { HomeRates } from "@/components/rates/home-rates";
 import { RecentTransactions } from "@/components/transactions/recent-transactions";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   getBudgets,
   getDebts,
@@ -92,6 +95,9 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
         <div className="flex flex-col gap-4 @4xl/main:col-span-2">
           <DebtsCard summary={debtSummary} />
           <AimsCard goals={goals} summary={goalSummary} />
+          <Suspense fallback={<Skeleton className="h-44 rounded-xl" />}>
+            <HomeRates />
+          </Suspense>
           <DailySpendChart month={month} daily={summary.daily} />
           {isSuperadmin && activity.length ? <ActivityCard items={activity} /> : null}
         </div>

@@ -1,5 +1,5 @@
 import { todayIn } from "@/lib/dates";
-import type { Debt, Expense, Income } from "@/lib/types";
+import type { Debt, DebtPayment, Expense, Income } from "@/lib/types";
 
 export type TransactionFlow = "in" | "out";
 
@@ -19,12 +19,14 @@ interface TransactionBase {
 export type Transaction =
   | (TransactionBase & { kind: "expense"; expense: Expense })
   | (TransactionBase & { kind: "income"; income: Income })
-  | (TransactionBase & { kind: "debt"; event: "open" | "settle"; debt: Debt });
+  | (TransactionBase & { kind: "debt"; event: "open" | "settle"; debt: Debt })
+  | (TransactionBase & { kind: "debt"; event: "payment"; debt: Debt; payment: DebtPayment });
 
 /**
  * One money-movement feed for a month. A debt appears when it happens
- * (borrowed = money in, lent = money out) and again when it is settled
- * (paying back = money out, receiving = money in).
+ * (borrowed = money in, lent = money out) and again for every repayment
+ * (paying back = money out, receiving = money in). Debts settled before part
+ * repayments existed have no repayment rows, so they show one settle entry.
  */
 export function buildTransactions({
   expenses,
@@ -92,7 +94,25 @@ export function buildTransactions({
         ...money,
       });
     }
-    if (d.settled_on?.startsWith(month)) {
+    for (const p of d.payments) {
+      if (!p.paid_on.startsWith(month)) continue;
+      list.push({
+        key: `debt:${d.id}:payment:${p.id}`,
+        kind: "debt",
+        event: "payment",
+        debt: d,
+        payment: p,
+        date: p.paid_on,
+        created_at: p.created_at,
+        flow: borrowed ? "out" : "in",
+        title: borrowed ? `Paid back ${d.counterparty}` : `Received from ${d.counterparty}`,
+        amount: p.amount,
+        currency: p.currency,
+        base_amount: p.base_amount,
+        editable: p.can_undo,
+      });
+    }
+    if (d.payments.length === 0 && d.settled_on?.startsWith(month)) {
       list.push({
         key: `debt:${d.id}:settle`,
         kind: "debt",

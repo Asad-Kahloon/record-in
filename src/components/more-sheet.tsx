@@ -12,6 +12,7 @@ import {
   INCOME_NAV,
   NOTIFICATIONS_NAV,
   PROFILE_NAV,
+  RATES_NAV,
   type ShellUser,
 } from "@/components/nav-items";
 import { useSignOut } from "@/components/nav-user";
@@ -40,7 +41,7 @@ export function MoreSheet({
   const { count } = useUnread();
   const close = () => onOpenChange(false);
 
-  const items = [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV, GOALS_NAV, NOTIFICATIONS_NAV, PROFILE_NAV];
+  const items = [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV, GOALS_NAV, RATES_NAV, NOTIFICATIONS_NAV, PROFILE_NAV];
   if (user.isSuperadmin) items.push(ADMIN_NAV);
 
   return (

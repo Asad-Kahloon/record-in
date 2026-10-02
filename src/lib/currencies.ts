@@ -38,6 +38,12 @@ export function isSupportedCurrency(code: unknown): code is string {
   return typeof code === "string" && CURRENCY_CODES.includes(code);
 }
 
+/** How many `to` units one `from` unit buys, from rates quoted per 1 USD (0 if unknown). */
+export function crossRate(rates: Record<string, number>, from: string, to: string): number {
+  if (from === to) return 1;
+  return rates[from] && rates[to] ? rates[to] / rates[from] : 0;
+}
+
 export function currencyName(code: string): string {
   return CURRENCIES.find((c) => c.code === code)?.name ?? code;
 }

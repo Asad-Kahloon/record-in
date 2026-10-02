@@ -1,5 +1,5 @@
 -- =============================================================================
---  RECORDIN · Supabase schema  (v4 — running balance, aims & savings wallet)
+--  RECORDIN · Supabase schema  (v6 — part repayments on borrow & lend)
 --  Paste this whole file into Supabase → SQL Editor → Run.
 --
 --  Safe to run again at any time. On an existing database it upgrades in place:
@@ -10,7 +10,8 @@
 --    public.incomes           monthly income entries
 --    public.expenses          daily expenses
 --    public.debts             money you borrowed or lent, pending or settled
---    public.budgets           monthly spending limits (overall + per category)
+--    public.debt_payments     money handed back on a debt — in full or in parts
+--    public.budgets          monthly spending limits (overall + per category)
 --    public.goals             savings aims (what, how much, by when, how often)
 --    public.goal_savings      the aims wallet — money set aside, and taken back
 --    public.push_subscriptions  devices that may receive reminders later
@@ -35,8 +36,9 @@
 --      RPC functions below, which check sign-in, account status, ownership,
 --      input and the edit window.
 --    • Triggers enforce the edit window and immutable columns again at table
---      level. Marking a debt as settled is the one change allowed after the
---      window closes.
+--      level. Recording money handed back on a debt is the one change allowed
+--      after the window closes; a repayment itself can be undone only inside
+--      its own window.
 --    • The very first account becomes superadmin. Everyone after that is user.
 --    • Helpers live in the `private` schema, which the Data API never exposes.
 -- =============================================================================
@@ -501,6 +503,37 @@ create index if not exists goal_savings_user_idx on public.goal_savings (user_id
 create unique index if not exists push_subscriptions_endpoint_key on public.push_subscriptions (endpoint);
 create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
 
+-- Money handed back on a debt — all of it at once, or a part at a time.
+-- Each repayment keeps what actually changed hands (amount + currency) and how
+-- much of the debt it cleared in the DEBT's currency: covered = amount × rate,
+-- where rate converts into the debt's currency (1 when they match). What is
+-- still owed is the debt's amount minus everything covered, and the debt is
+-- settled once that reaches zero — settled_on is the day of the payment that
+-- finished it. Debts settled before repayments existed have no rows here and
+-- count as handed back in full on their settled_on.
+create table if not exists public.debt_payments (
+  id              uuid primary key default gen_random_uuid(),
+  debt_id         uuid not null references public.debts (id) on delete cascade,
+  user_id         uuid not null references public.users (id) on delete cascade,
+  amount          numeric(12, 2) not null,
+  currency        text not null,
+  rate            numeric(18, 8) not null default 1,
+  covered         numeric(12, 2) not null,
+  paid_on         date not null,
+  note            text,
+  created_at      timestamptz not null default now(),
+  editable_until  timestamptz not null default (now() + interval '30 minutes'),
+  constraint debt_payments_amount_range check (amount > 0 and amount <= 999999999.99),
+  constraint debt_payments_currency_format check (currency ~ '^[A-Z]{3}$'),
+  constraint debt_payments_rate_positive check (rate > 0),
+  constraint debt_payments_covered_range check (covered > 0 and covered <= 999999999.99),
+  constraint debt_payments_note_len check (note is null or char_length(note) <= 200),
+  constraint debt_payments_paid_on_min check (paid_on >= date '2020-01-01')
+);
+
+create index if not exists debt_payments_debt_idx on public.debt_payments (debt_id, paid_on, created_at);
+create index if not exists debt_payments_user_idx on public.debt_payments (user_id, paid_on desc);
+
 -- Aim reminders are delivered through the same feed as everything else, but to
 -- the saver rather than the super admin. dedupe_key makes "once per period"
 -- literally true, however many times the app asks for reminders to be built.
@@ -513,6 +546,7 @@ alter table public.notifications add constraint notifications_type_valid check (
   'expense_added', 'expense_updated', 'expense_deleted',
   'income_added', 'income_updated', 'income_deleted',
   'debt_added', 'debt_updated', 'debt_deleted', 'debt_settled', 'debt_reopened',
+  'debt_payment', 'debt_payment_undone',
   'goal_due', 'goal_missed', 'goal_saved', 'goal_withdrawn', 'goal_achieved',
   'user_joined'
 ));
@@ -520,6 +554,12 @@ alter table public.notifications add constraint notifications_type_valid check (
 alter table public.goals enable row level security;
 alter table public.goal_savings enable row level security;
 alter table public.push_subscriptions enable row level security;
+alter table public.debt_payments enable row level security;
+
+drop policy if exists "debt payments: read own, superadmin reads all" on public.debt_payments;
+create policy "debt payments: read own, superadmin reads all"
+  on public.debt_payments for select to authenticated
+  using (user_id = (select auth.uid()) or (select private.is_superadmin()));
 
 drop policy if exists "goals: read own, superadmin reads all" on public.goals;
 create policy "goals: read own, superadmin reads all"
@@ -537,9 +577,41 @@ create policy "push subscriptions: read own"
   using (user_id = (select auth.uid()));
 
 
+-- How much of a debt has been handed back, in the debt's own currency.
+create or replace function private.debt_paid(p_debt_id uuid, p_before date default null)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select coalesce(sum(p.covered), 0)
+  from public.debt_payments p
+  where p.debt_id = p_debt_id
+    and (p_before is null or p.paid_on < p_before);
+$$;
+
+-- What is still owed on a debt, in the owner's main currency — right now, or
+-- as it stood just before p_before. Repayments clear it pro rata, so a debt
+-- half paid back counts for half its value, and a settled one for nothing.
+create or replace function private.debt_open_base(p_debt public.debts, p_before date default null)
+returns numeric
+language sql stable security definer
+set search_path = ''
+as $$
+  select case
+    when p_before is not null and p_debt.occurred_on >= p_before then 0
+    when p_debt.settled_on is not null and (p_before is null or p_debt.settled_on < p_before) then 0
+    else round(
+      p_debt.base_amount
+        * greatest(p_debt.amount - private.debt_paid(p_debt.id, p_before), 0)
+        / p_debt.amount,
+      2)
+  end;
+$$;
+
 -- Money actually available to spend, across all months:
 --   income − spending + money borrowed and still held − money lent out.
--- A settled debt cancels itself out on both sides, so it drops out of the sum.
+-- Only the part of a debt that is still owed counts; a settled debt cancels
+-- itself out on both sides, so it drops out of the sum.
 create or replace function private.available_balance(p_user_id uuid)
 returns numeric
 language sql stable security definer
@@ -548,10 +620,8 @@ as $$
   select
     coalesce((select sum(i.base_amount) from public.incomes i where i.user_id = p_user_id), 0)
     - coalesce((select sum(e.base_amount) from public.expenses e where e.user_id = p_user_id), 0)
-    + coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'borrowed' and d.settled_on is null), 0)
-    - coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on is null), 0)
+    + coalesce((select sum(case when d.direction = 'borrowed' then 1 else -1 end * private.debt_open_base(d))
+                from public.debts d where d.user_id = p_user_id), 0)
     - coalesce((select sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end)
                 from public.goal_savings s where s.user_id = p_user_id), 0);
 $$;
@@ -567,14 +637,8 @@ as $$
               where i.user_id = p_user_id and i.month < p_date), 0)
     - coalesce((select sum(e.base_amount) from public.expenses e
                 where e.user_id = p_user_id and e.spent_on < p_date), 0)
-    + coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'borrowed' and d.occurred_on < p_date), 0)
-    - coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'borrowed' and d.settled_on < p_date), 0)
-    - coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'lent' and d.occurred_on < p_date), 0)
-    + coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = p_user_id and d.direction = 'lent' and d.settled_on < p_date), 0)
+    + coalesce((select sum(case when d.direction = 'borrowed' then 1 else -1 end * private.debt_open_base(d, p_date))
+                from public.debts d where d.user_id = p_user_id and d.occurred_on < p_date), 0)
     - coalesce((select sum(case when s.direction = 'in' then s.base_amount else -s.base_amount end)
                 from public.goal_savings s where s.user_id = p_user_id and s.saved_on < p_date), 0);
 $$;
@@ -733,6 +797,7 @@ begin
     (select count(*) from public.expenses e where e.user_id = p_user_id and e.created_at > now() - interval '1 hour')
     + (select count(*) from public.incomes i where i.user_id = p_user_id and i.created_at > now() - interval '1 hour')
     + (select count(*) from public.debts d where d.user_id = p_user_id and d.created_at > now() - interval '1 hour')
+    + (select count(*) from public.debt_payments p where p.user_id = p_user_id and p.created_at > now() - interval '1 hour')
     + (select count(*) from public.goal_savings g where g.user_id = p_user_id and g.created_at > now() - interval '1 hour')
   into v_recent;
 
@@ -1006,6 +1071,110 @@ drop trigger if exists debts_notify on public.debts;
 create trigger debts_notify
   after insert or update or delete on public.debts
   for each row execute function private.tg_notify_admins();
+
+-- 4f. Repayments are history: written once, never edited, and undone (deleted)
+--     only within the edit window of the repayment itself.
+create or replace function private.tg_debt_payment_guard()
+returns trigger
+language plpgsql security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_at := now();
+    new.editable_until := now() + private.edit_window();
+    return new;
+  end if;
+
+  -- SQL-editor maintenance and account removal carry no JWT, as elsewhere.
+  if auth.uid() is null then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  if old.user_id is distinct from auth.uid() then
+    raise exception 'You can only change your own entries.' using errcode = '42501';
+  end if;
+
+  if tg_op = 'UPDATE' then
+    raise exception 'A repayment cannot be edited. Undo it and record it again instead.';
+  end if;
+
+  -- Removed together with its debt (still inside the debt's own window).
+  if not exists (select 1 from public.debts d where d.id = old.debt_id) then
+    return old;
+  end if;
+
+  if now() > old.editable_until then
+    raise exception 'This repayment is locked. Repayments can only be undone within % minutes of recording them.',
+      private.edit_window_minutes();
+  end if;
+
+  return old;
+end;
+$$;
+
+drop trigger if exists debt_payments_guard on public.debt_payments;
+create trigger debt_payments_guard
+  before insert or update or delete on public.debt_payments
+  for each row execute function private.tg_debt_payment_guard();
+
+-- Part repayments reach the super admin like any other entry. The payment that
+-- finishes a debt, and the undo that reopens one, are already announced by
+-- the debt itself as settled / pending again, so they stay quiet here.
+create or replace function private.tg_notify_debt_payment()
+returns trigger
+language plpgsql security definer
+set search_path = ''
+as $$
+declare
+  v_row  public.debt_payments;
+  v_debt public.debts;
+  v_name text;
+begin
+  if auth.uid() is null or current_setting('expense_tracker.recalculating', true) = 'on' then
+    return null;
+  end if;
+
+  if tg_op = 'DELETE' then
+    v_row := old;
+  else
+    v_row := new;
+  end if;
+
+  select * into v_debt from public.debts d where d.id = v_row.debt_id;
+
+  if v_debt.id is null
+     or (tg_op = 'INSERT' and private.debt_paid(v_debt.id) >= v_debt.amount)
+     or (tg_op = 'DELETE' and v_debt.settled_on is not null) then
+    return null;
+  end if;
+
+  select coalesce(nullif(u.full_name, ''), u.email) into v_name from public.users u where u.id = v_row.user_id;
+
+  insert into public.notifications (recipient_id, actor_id, type, payload)
+  select u.id, v_row.user_id,
+         case when tg_op = 'INSERT' then 'debt_payment' else 'debt_payment_undone' end,
+         jsonb_build_object(
+           'record_id',          v_debt.id,
+           'actor_name',         v_name,
+           'amount',             v_row.amount,
+           'currency',           v_row.currency,
+           'label',              v_debt.counterparty,
+           'direction',          v_debt.direction,
+           'date',               v_row.paid_on,
+           'remaining',          greatest(v_debt.amount - private.debt_paid(v_debt.id), 0),
+           'remaining_currency', v_debt.currency)
+  from public.users u
+  where u.role = 'superadmin' and u.is_active and u.id <> v_row.user_id;
+
+  return null;
+end;
+$$;
+
+drop trigger if exists debt_payments_notify on public.debt_payments;
+create trigger debt_payments_notify
+  after insert or delete on public.debt_payments
+  for each row execute function private.tg_notify_debt_payment();
 
 -- -----------------------------------------------------------------------------
 -- 5. Row Level Security
@@ -1780,6 +1949,7 @@ declare
   v_row  public.debts;
   v_rate numeric;
   v_note text := nullif(btrim(coalesce(p_note, '')), '');
+  v_repaid boolean;
 begin
   v_user := private.require_user();
 
@@ -1790,7 +1960,7 @@ begin
   end if;
 
   if now() > v_row.editable_until then
-    raise exception 'This debt is locked. Details can only be edited within % minutes of adding it, but you can still mark it as settled.',
+    raise exception 'This debt is locked. Details can only be edited within % minutes of adding it, but you can still record money handed back.',
       private.edit_window_minutes();
   end if;
 
@@ -1798,6 +1968,17 @@ begin
 
   if v_row.settled_on is not null and v_row.settled_on < p_occurred_on then
     raise exception 'This debt was settled before that date.';
+  end if;
+
+  -- Repayments are counted against the amount, so the money side stays put.
+  v_repaid := exists (select 1 from public.debt_payments p where p.debt_id = v_row.id);
+  if v_repaid then
+    if p_direction <> v_row.direction or round(p_amount, 2) <> v_row.amount or p_currency <> v_row.currency then
+      raise exception 'Repayments are already recorded on this debt, so its amount, currency and direction can no longer change.';
+    end if;
+    if exists (select 1 from public.debt_payments p where p.debt_id = v_row.id and p.paid_on < p_occurred_on) then
+      raise exception 'A repayment was recorded before that date.';
+    end if;
   end if;
 
   if p_currency = v_row.currency then
@@ -1816,7 +1997,7 @@ begin
     return to_jsonb(v_row);
   end if;
 
-  if p_direction = 'lent' then
+  if p_direction = 'lent' and not v_repaid then
     perform private.assert_can_spend(
       v_user,
       private.converted(p_amount, v_rate),
@@ -1865,16 +2046,200 @@ begin
     raise exception 'This debt is locked and can no longer be deleted.';
   end if;
 
-  if v_row.direction = 'borrowed' and v_row.settled_on is null then
-    perform private.assert_can_spend(v_user, v_row.base_amount);
+  -- Borrowed money you still hold leaves together with the entry.
+  if v_row.direction = 'borrowed' and private.debt_open_base(v_row) > 0 then
+    perform private.assert_can_spend(v_user, private.debt_open_base(v_row));
   end if;
 
   delete from public.debts d where d.id = p_id;
 end;
 $$;
 
--- Mark a debt as settled (paid back / received) or pending again.
--- Allowed at any time, even after the edit window has closed.
+-- Record money handed back on a debt — all that is left, or any part of it,
+-- in any currency. p_rate converts p_currency into the DEBT's currency (the
+-- app server supplies it; it is ignored when the two match). Allowed at any
+-- time, even after the debt's own edit window has closed. Once repayments
+-- cover the whole amount the debt is settled on the latest repayment's date.
+create or replace function public.add_debt_payment(
+  p_debt_id uuid,
+  p_amount numeric,
+  p_currency text,
+  p_rate numeric default 1,
+  p_paid_on date default null,
+  p_note text default null
+)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user    public.users;
+  v_debt    public.debts;
+  v_on      date := coalesce(p_paid_on, private.utc_today());
+  v_note    text := nullif(btrim(coalesce(p_note, '')), '');
+  v_amount  numeric;
+  v_rate    numeric;
+  v_covered numeric;
+  v_left    numeric;
+  v_payment public.debt_payments;
+begin
+  v_user := private.require_user();
+
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Amount must be greater than zero.';
+  end if;
+  if p_amount > 999999999.99 then
+    raise exception 'That amount is too large.';
+  end if;
+  if p_currency is null or p_currency !~ '^[A-Z]{3}$' then
+    raise exception 'Please choose a valid currency.';
+  end if;
+  if v_on > private.utc_today() + 1 then
+    raise exception 'The date cannot be in the future.';
+  end if;
+  if v_note is not null and char_length(v_note) > 200 then
+    raise exception 'Note must be 200 characters or fewer.';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+  perform private.enforce_rate_limit(v_user.id);
+
+  select * into v_debt from public.debts d where d.id = p_debt_id for update;
+
+  if v_debt.id is null or v_debt.user_id <> v_user.id then
+    raise exception 'Entry not found.' using errcode = 'P0002';
+  end if;
+  if v_debt.settled_on is not null then
+    raise exception 'This debt is already settled.';
+  end if;
+  if v_on < v_debt.occurred_on then
+    raise exception 'The repayment date cannot be before the loan date.';
+  end if;
+
+  v_amount := round(p_amount, 2);
+  if p_currency = v_debt.currency then
+    v_rate := 1;
+  else
+    v_rate := round(p_rate, 8);
+    if v_rate is null or v_rate <= 0 or v_rate > 1000000000 then
+      raise exception 'Could not convert this amount to %. Please try again.', v_debt.currency;
+    end if;
+  end if;
+
+  v_covered := round(v_amount * v_rate, 2);
+  v_left := v_debt.amount - private.debt_paid(v_debt.id);
+
+  if v_covered <= 0 then
+    raise exception 'That amount is too small to count towards this debt.';
+  end if;
+
+  if v_covered > v_left then
+    -- Handing the rest back in another currency rarely lands on the exact
+    -- cent, so anything within 1% of what is left settles it.
+    if p_currency <> v_debt.currency and v_covered <= round(v_left * 1.01, 2) + 0.01 then
+      v_covered := v_left;
+    elsif p_currency <> v_debt.currency then
+      raise exception 'Only % is left on this debt (about %).',
+        v_debt.currency || ' ' || to_char(v_left, 'FM999999999990.00'),
+        p_currency || ' ' || to_char(round(v_left / v_rate, 2), 'FM999999999990.00');
+    else
+      raise exception 'Only % is left on this debt.',
+        v_debt.currency || ' ' || to_char(v_left, 'FM999999999990.00');
+    end if;
+  end if;
+
+  if exists (
+    select 1 from public.debt_payments p
+    where p.debt_id = v_debt.id
+      and p.amount = v_amount
+      and p.currency = p_currency
+      and p.paid_on = v_on
+      and p.created_at > now() - interval '15 seconds'
+  ) then
+    raise exception 'This exact repayment was recorded a moment ago, so the duplicate was skipped.';
+  end if;
+
+  -- Paying back borrowed money is money leaving your hands, so it has to be there.
+  if v_debt.direction = 'borrowed' then
+    perform private.assert_can_spend(
+      v_user,
+      private.debt_open_base(v_debt) - round(v_debt.base_amount * (v_left - v_covered) / v_debt.amount, 2));
+  end if;
+
+  insert into public.debt_payments (debt_id, user_id, amount, currency, rate, covered, paid_on, note)
+  values (v_debt.id, v_user.id, v_amount, p_currency, v_rate, v_covered, v_on, v_note)
+  returning * into v_payment;
+
+  if v_covered >= v_left then
+    update public.debts d
+       set settled_on = (select max(p.paid_on) from public.debt_payments p where p.debt_id = d.id)
+     where d.id = v_debt.id
+    returning * into v_debt;
+  end if;
+
+  return jsonb_build_object(
+    'payment',   to_jsonb(v_payment),
+    'debt',      to_jsonb(v_debt),
+    'remaining', greatest(v_left - v_covered, 0),
+    'settled',   v_debt.settled_on is not null
+  );
+end;
+$$;
+
+-- Undo a repayment recorded by mistake — only within the repayment's own edit
+-- window. That part is owed again, and a settled debt goes back to pending.
+create or replace function public.delete_debt_payment(p_id uuid)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user    public.users;
+  v_payment public.debt_payments;
+  v_debt    public.debts;
+begin
+  v_user := private.require_user();
+
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
+
+  select * into v_payment from public.debt_payments p where p.id = p_id for update;
+
+  if v_payment.id is null or v_payment.user_id <> v_user.id then
+    raise exception 'Entry not found.' using errcode = 'P0002';
+  end if;
+
+  if now() > v_payment.editable_until then
+    raise exception 'This repayment is locked. Repayments can only be undone within % minutes of recording them.',
+      private.edit_window_minutes();
+  end if;
+
+  select * into v_debt from public.debts d where d.id = v_payment.debt_id for update;
+
+  -- Money you had counted as received is no longer in your hands.
+  if v_debt.direction = 'lent' then
+    perform private.assert_can_spend(
+      v_user,
+      round(v_debt.base_amount * (v_debt.amount - private.debt_paid(v_debt.id) + v_payment.covered) / v_debt.amount, 2)
+        - private.debt_open_base(v_debt));
+  end if;
+
+  delete from public.debt_payments p where p.id = p_id;
+
+  if v_debt.settled_on is not null then
+    update public.debts d set settled_on = null where d.id = v_debt.id returning * into v_debt;
+  end if;
+
+  return jsonb_build_object(
+    'debt',      to_jsonb(v_debt),
+    'remaining', v_debt.amount - private.debt_paid(v_debt.id)
+  );
+end;
+$$;
+
+-- Settle a debt in one go, or put an old-style settled debt back to pending.
+-- Settling records whatever is still owed as one final repayment, so the
+-- history always shows what came back. A debt settled through repayments is
+-- reopened by undoing its latest repayment instead.
 create or replace function public.set_debt_settled(p_id uuid, p_settled boolean, p_settled_on date default null)
 returns jsonb
 language plpgsql volatile security definer
@@ -1883,9 +2248,11 @@ as $$
 declare
   v_user public.users;
   v_row  public.debts;
-  v_date date;
 begin
   v_user := private.require_user();
+
+  -- Same lock order as add_debt_payment: account first, then the row.
+  perform pg_advisory_xact_lock(hashtext('expense_tracker.write:' || v_user.id::text));
 
   select * into v_row from public.debts d where d.id = p_id for update;
 
@@ -1894,34 +2261,30 @@ begin
   end if;
 
   if coalesce(p_settled, true) then
-    v_date := coalesce(p_settled_on, private.utc_today());
-    if v_date < v_row.occurred_on then
-      raise exception 'The settle date cannot be before the loan date.';
-    end if;
-    if v_date > private.utc_today() + 1 then
-      raise exception 'The settle date cannot be in the future.';
-    end if;
-    if v_row.settled_on is not distinct from v_date then
+    if v_row.settled_on is not null then
       return to_jsonb(v_row);
     end if;
-    if v_row.direction = 'borrowed' then
-      perform private.assert_can_spend(v_user, v_row.base_amount);
-    end if;
-    update public.debts d set settled_on = v_date where d.id = p_id returning * into v_row;
-  else
-    if v_row.settled_on is null then
-      return to_jsonb(v_row);
-    end if;
-    if v_row.direction = 'lent' then
-      perform private.assert_can_spend(v_user, v_row.base_amount);
-    end if;
-    update public.debts d set settled_on = null where d.id = p_id returning * into v_row;
+    return public.add_debt_payment(
+      p_id, v_row.amount - private.debt_paid(p_id), v_row.currency, 1, p_settled_on, null) -> 'debt';
   end if;
+
+  if v_row.settled_on is null then
+    return to_jsonb(v_row);
+  end if;
+  if exists (select 1 from public.debt_payments p where p.debt_id = p_id) then
+    raise exception 'This debt was settled with repayments. Undo the latest repayment instead.';
+  end if;
+  if v_row.direction = 'lent' then
+    perform private.assert_can_spend(v_user, v_row.base_amount);
+  end if;
+  update public.debts d set settled_on = null where d.id = p_id returning * into v_row;
 
   return to_jsonb(v_row);
 end;
 $$;
 
+-- v6 adds what has been handed back to each row, so the old shape goes first.
+drop function if exists public.list_debts(uuid);
 create or replace function public.list_debts(p_user_id uuid default null)
 returns table (
   id              uuid,
@@ -1940,7 +2303,11 @@ returns table (
   updated_at      timestamptz,
   editable_until  timestamptz,
   can_edit        boolean,
-  is_owner        boolean
+  is_owner        boolean,
+  paid            numeric,
+  remaining       numeric,
+  open_base       numeric,
+  payments        jsonb
 )
 language plpgsql stable security definer
 set search_path = ''
@@ -1953,11 +2320,33 @@ begin
   v_user := private.require_user();
   v_target := private.resolve_target(v_user, p_user_id);
 
+  -- paid / remaining are in the debt's currency, open_base in the main one.
+  -- A repayment's base_amount is its share of the debt in the main currency.
   return query
     select d.id, d.user_id, d.direction, d.counterparty, d.amount, d.currency, d.rate, d.base_amount,
            d.note, d.occurred_on, d.due_on, d.settled_on, d.created_at, d.updated_at, d.editable_until,
            (d.user_id = v_user.id and now() <= d.editable_until),
-           (d.user_id = v_user.id)
+           (d.user_id = v_user.id),
+           case when d.settled_on is not null then d.amount else least(private.debt_paid(d.id), d.amount) end,
+           case when d.settled_on is not null then 0::numeric else greatest(d.amount - private.debt_paid(d.id), 0) end,
+           private.debt_open_base(d),
+           coalesce((
+             select jsonb_agg(jsonb_build_object(
+                      'id',             p.id,
+                      'amount',         p.amount,
+                      'currency',       p.currency,
+                      'rate',           p.rate,
+                      'covered',        p.covered,
+                      'base_amount',    round(d.base_amount * p.covered / d.amount, 2),
+                      'paid_on',        p.paid_on,
+                      'note',           p.note,
+                      'created_at',     p.created_at,
+                      'editable_until', p.editable_until,
+                      'can_undo',       (p.user_id = v_user.id and now() <= p.editable_until))
+                    order by p.paid_on desc, p.created_at desc)
+             from public.debt_payments p
+             where p.debt_id = d.id
+           ), '[]'::jsonb)
     from public.debts d
     where d.user_id = v_target
     order by (d.settled_on is not null),
@@ -1982,19 +2371,24 @@ begin
   v_user := private.require_user();
   v_target := private.resolve_target(v_user, p_user_id);
 
+  -- *_pending is what is still owed; *_settled is everything handed back so
+  -- far, part repayments included.
   select jsonb_build_object(
-    'borrowed_pending',       coalesce(sum(d.base_amount) filter (where d.direction = 'borrowed' and d.settled_on is null), 0),
+    'borrowed_pending',       coalesce(sum(d.open_base) filter (where d.direction = 'borrowed'), 0),
     'borrowed_pending_count', count(*) filter (where d.direction = 'borrowed' and d.settled_on is null),
-    'lent_pending',           coalesce(sum(d.base_amount) filter (where d.direction = 'lent' and d.settled_on is null), 0),
+    'lent_pending',           coalesce(sum(d.open_base) filter (where d.direction = 'lent'), 0),
     'lent_pending_count',     count(*) filter (where d.direction = 'lent' and d.settled_on is null),
-    'borrowed_settled',       coalesce(sum(d.base_amount) filter (where d.direction = 'borrowed' and d.settled_on is not null), 0),
-    'lent_settled',           coalesce(sum(d.base_amount) filter (where d.direction = 'lent' and d.settled_on is not null), 0),
+    'borrowed_settled',       coalesce(sum(d.base_amount - d.open_base) filter (where d.direction = 'borrowed'), 0),
+    'lent_settled',           coalesce(sum(d.base_amount - d.open_base) filter (where d.direction = 'lent'), 0),
     'settled_count',          count(*) filter (where d.settled_on is not null),
     'overdue_count',          count(*) filter (where d.settled_on is null and d.due_on < v_today)
   )
   into v_result
-  from public.debts d
-  where d.user_id = v_target;
+  from (
+    select x.direction, x.base_amount, x.settled_on, x.due_on, private.debt_open_base(x) as open_base
+    from public.debts x
+    where x.user_id = v_target
+  ) d;
 
   return v_result;
 end;
@@ -2183,10 +2577,10 @@ begin
       coalesce((select sum(i.base_amount) from public.incomes i where i.user_id = u.id), 0) as total_income,
       coalesce((select sum(e.base_amount) from public.expenses e where e.user_id = u.id), 0) as total_expense,
       (select count(*) from public.expenses e where e.user_id = u.id) as total_count,
-      coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = u.id and d.direction = 'borrowed' and d.settled_on is null), 0) as borrowed_pending,
-      coalesce((select sum(d.base_amount) from public.debts d
-                where d.user_id = u.id and d.direction = 'lent' and d.settled_on is null), 0) as lent_pending,
+      coalesce((select sum(private.debt_open_base(d)) from public.debts d
+                where d.user_id = u.id and d.direction = 'borrowed'), 0) as borrowed_pending,
+      coalesce((select sum(private.debt_open_base(d)) from public.debts d
+                where d.user_id = u.id and d.direction = 'lent'), 0) as lent_pending,
       greatest(
         (select max(e.created_at) from public.expenses e where e.user_id = u.id),
         (select max(i.created_at) from public.incomes i where i.user_id = u.id),
@@ -2344,12 +2738,33 @@ begin
     union all
     select d.direction, coalesce(nullif(u.full_name, ''), u.email), u.email, d.occurred_on,
            d.counterparty, coalesce(d.note, ''), null::text,
-           case when d.settled_on is null then 'pending' else 'settled ' || d.settled_on::text end,
+           case
+             when d.settled_on is not null then 'settled ' || d.settled_on::text
+             when private.debt_paid(d.id) > 0 then
+               'part paid, ' || d.currency || ' ' || to_char(d.amount - private.debt_paid(d.id), 'FM999999999990.00') || ' left'
+             else 'pending'
+           end,
            d.amount, d.currency, d.rate, d.base_amount, u.currency, d.created_at
     from public.debts d
     join public.users u on u.id = d.user_id
     where (v_target is null or d.user_id = v_target)
       and (v_from is null or (d.occurred_on >= v_from and d.occurred_on < v_to))
+    union all
+    -- Each repayment, valued at its share of the debt in the main currency.
+    select case when d.direction = 'borrowed' then 'paid_back' else 'received_back' end,
+           coalesce(nullif(u.full_name, ''), u.email), u.email, p.paid_on,
+           d.counterparty, coalesce(p.note, ''), null::text,
+           case when p.currency = d.currency then 'repayment'
+                else 'repayment, ' || d.currency || ' ' || to_char(p.covered, 'FM999999999990.00') || ' of the debt' end,
+           p.amount, p.currency,
+           round(round(d.base_amount * p.covered / d.amount, 2) / p.amount, 8),
+           round(d.base_amount * p.covered / d.amount, 2),
+           u.currency, p.created_at
+    from public.debt_payments p
+    join public.debts d on d.id = p.debt_id
+    join public.users u on u.id = p.user_id
+    where (v_target is null or p.user_id = v_target)
+      and (v_from is null or (p.paid_on >= v_from and p.paid_on < v_to))
     union all
     select case when s.direction = 'in' then 'saving' else 'saving_returned' end,
            coalesce(nullif(u.full_name, ''), u.email), u.email, s.saved_on,
@@ -2461,10 +2876,10 @@ begin
     'available',        private.available_balance(v_target),
     'income_total',     coalesce((select sum(i.base_amount) from public.incomes i where i.user_id = v_target), 0),
     'expense_total',    coalesce((select sum(e.base_amount) from public.expenses e where e.user_id = v_target), 0),
-    'borrowed_pending', coalesce((select sum(d.base_amount) from public.debts d
-                                  where d.user_id = v_target and d.direction = 'borrowed' and d.settled_on is null), 0),
-    'lent_pending',     coalesce((select sum(d.base_amount) from public.debts d
-                                  where d.user_id = v_target and d.direction = 'lent' and d.settled_on is null), 0),
+    'borrowed_pending', coalesce((select sum(private.debt_open_base(d)) from public.debts d
+                                  where d.user_id = v_target and d.direction = 'borrowed'), 0),
+    'lent_pending',     coalesce((select sum(private.debt_open_base(d)) from public.debts d
+                                  where d.user_id = v_target and d.direction = 'lent'), 0),
     'saved_total',      private.goals_saved_total(v_target),
     'goal_count',       (select count(*) from public.goals g where g.user_id = v_target and g.status = 'active'),
     'currency',         (select u.currency from public.users u where u.id = v_target)
@@ -3624,10 +4039,10 @@ end $$;
 -- -----------------------------------------------------------------------------
 
 -- Tables: read-only for signed-in users (RLS decides which rows), nothing for anon.
-revoke all on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.budgets,
+revoke all on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.debt_payments, public.budgets,
   public.goals, public.goal_savings, public.push_subscriptions, public.notifications
   from anon, authenticated;
-grant select on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.budgets,
+grant select on table public.users, public.categories, public.incomes, public.expenses, public.debts, public.debt_payments, public.budgets,
   public.goals, public.goal_savings, public.push_subscriptions, public.notifications
   to authenticated;
 
@@ -3665,6 +4080,8 @@ begin
     'public.update_debt(uuid, text, text, numeric, text, date, date, text, numeric)',
     'public.delete_debt(uuid)',
     'public.set_debt_settled(uuid, boolean, date)',
+    'public.add_debt_payment(uuid, numeric, text, numeric, date, text)',
+    'public.delete_debt_payment(uuid)',
     'public.list_debts(uuid)',
     'public.get_debt_summary(uuid)',
     'public.get_balance(uuid)',

@@ -1,11 +1,19 @@
 "use client";
 
-import { ArrowDownLeftIcon, ArrowUpRightIcon, CircleAlertIcon, CircleCheckIcon, HourglassIcon } from "lucide-react";
+import {
+  ArrowDownLeftIcon,
+  ArrowUpRightIcon,
+  ChartPieIcon,
+  CircleAlertIcon,
+  CircleCheckIcon,
+  HourglassIcon,
+} from "lucide-react";
 
 import { useAppConfig, useMoney } from "@/components/providers/app-config";
 import { UserAvatar } from "@/components/user-avatar";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { formatDate, formatDayHeading } from "@/lib/dates";
+import { isPartPaid, repaidPercent } from "@/lib/debts";
 import type { Debt } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -27,13 +35,17 @@ export function DebtRow({
   const borrowed = debt.direction === "borrowed";
   const settled = Boolean(debt.settled_on);
   const overdue = !settled && !!debt.due_on && debt.due_on < today;
+  const partPaid = isPartPaid(debt);
+  const progress = partPaid ? `${Math.floor(repaidPercent(debt))}% ${borrowed ? "paid back" : "received"}` : "";
 
   // Status always pairs an icon with a label, never color alone.
   const status = settled
     ? { label: borrowed ? "Paid back" : "Received", icon: CircleCheckIcon, className: "text-positive" }
     : overdue
-      ? { label: "Overdue", icon: CircleAlertIcon, className: "text-destructive" }
-      : { label: "Pending", icon: HourglassIcon, className: "text-warning" };
+      ? { label: partPaid ? `Overdue · ${progress}` : "Overdue", icon: CircleAlertIcon, className: "text-destructive" }
+      : partPaid
+        ? { label: progress, icon: ChartPieIcon, className: "text-brand" }
+        : { label: "Pending", icon: HourglassIcon, className: "text-warning" };
 
   const when = settled && debt.settled_on
     ? formatDayHeading(debt.settled_on, today, locale)
@@ -65,10 +77,17 @@ export function DebtRow({
         </span>
       </ItemContent>
       <ItemActions className="flex-col items-end gap-0.5">
+        {/* A part-paid debt leads with what is still owed. */}
         <span className={cn("money font-semibold tabular-nums", settled && "text-muted-foreground")}>
-          {money(debt.base_amount)}
+          {money(partPaid ? debt.open_base : debt.base_amount)}
         </span>
-        {debt.currency !== currency ? (
+        {partPaid ? (
+          <span className="money text-[11px] text-muted-foreground tabular-nums">
+            {debt.currency !== currency
+              ? `${money(debt.remaining, { currency: debt.currency })} left`
+              : `left of ${money(debt.base_amount)}`}
+          </span>
+        ) : debt.currency !== currency ? (
           <span className="money text-[11px] text-muted-foreground tabular-nums">
             {money(debt.amount, { currency: debt.currency })}
           </span>

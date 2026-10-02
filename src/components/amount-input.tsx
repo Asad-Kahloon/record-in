@@ -7,7 +7,7 @@ import { getRateAction } from "@/app/actions/account";
 import { CurrencySelect } from "@/components/currency-select";
 import { useAppConfig } from "@/components/providers/app-config";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { currencySymbol, formatMoney, formatNumber } from "@/lib/format";
+import { currencySymbol, formatMoney, formatRate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /** Keeps digits and a single decimal point with at most 2 decimals. */
@@ -40,10 +40,6 @@ function useRate(from: string, to: string) {
   return state.key === key ? { rate: state.rate, loading: false } : { rate: null, loading: true };
 }
 
-function formatRate(rate: number, locale: string) {
-  return rate >= 1 ? formatNumber(rate, locale) : rate.toPrecision(3);
-}
-
 export function AmountInput({
   id,
   value,
@@ -53,6 +49,7 @@ export function AmountInput({
   invalid,
   disabled,
   autoFocus,
+  convertTo,
 }: {
   id: string;
   value: string;
@@ -63,8 +60,11 @@ export function AmountInput({
   invalid?: boolean;
   disabled?: boolean;
   autoFocus?: boolean;
+  /** Currency the live preview converts into (defaults to the main currency). */
+  convertTo?: string;
 }) {
-  const { currency: base, locale } = useAppConfig();
+  const { currency: mainCurrency, locale } = useAppConfig();
+  const base = convertTo ?? mainCurrency;
   const { rate, loading } = useRate(currency, base);
   const amount = Number(value) || 0;
 

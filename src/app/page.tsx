@@ -25,7 +25,7 @@ export const metadata: Metadata = {
 
 const FEATURES = [
   { icon: WalletIcon, title: "Income and expenses", body: "Record what comes in and every penny that goes out, in seconds." },
-  { icon: HandCoinsIcon, title: "Borrow and lend", body: "Track who owes whom, and settle up when the money moves." },
+  { icon: HandCoinsIcon, title: "Borrow and lend", body: "Track who owes whom, and record money as it comes back — in full or in parts." },
   { icon: TargetIcon, title: "Budgets", body: "Monthly limits that tell you what is safe to spend each day." },
   { icon: ArrowLeftRightIcon, title: "Any currency", body: "Add dollars, dirhams or euros — converted into your main currency." },
   { icon: ChartColumnIcon, title: "Clear reports", body: "Each month: carried in, money in, money out, and what is left." },

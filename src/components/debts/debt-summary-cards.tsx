@@ -64,7 +64,7 @@ export function DebtSummaryCards({ summary, config }: { summary: DebtSummary; co
           <AlertTitle>
             {summary.overdue_count} {summary.overdue_count === 1 ? "entry is" : "entries are"} past the return date
           </AlertTitle>
-          <AlertDescription>Open an entry to mark it as settled once the money has moved.</AlertDescription>
+          <AlertDescription>Open an entry to record money as it comes back — all of it, or a part.</AlertDescription>
         </Alert>
       ) : null}
     </div>

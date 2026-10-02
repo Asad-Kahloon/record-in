@@ -44,6 +44,22 @@ export function formatNumber(value: number, locale: string, compact = false): st
   return f.format(Number.isFinite(value) ? value : 0);
 }
 
+/**
+ * A rate (or converted amount) with as many digits as it needs to mean
+ * something: 276.93 · 75.40 · 3.6725 · 0.003609.
+ */
+export function formatRate(value: number, locale: string): string {
+  const abs = Math.abs(value);
+  const digits = abs >= 10 ? 2 : abs >= 1 ? 4 : 0;
+  const f = formatter(`rate|${locale}|${digits}`, () =>
+    new Intl.NumberFormat(
+      locale,
+      digits ? { minimumFractionDigits: 2, maximumFractionDigits: digits } : { maximumSignificantDigits: 4 },
+    ),
+  );
+  return f.format(Number.isFinite(value) ? value : 0);
+}
+
 /** 0.256 → "26%" */
 export function formatPercent(ratio: number, locale: string, fractionDigits = 0): string {
   const f = formatter(`pct|${locale}|${fractionDigits}`, () =>

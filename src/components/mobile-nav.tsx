@@ -11,11 +11,13 @@ import {
   BUDGETS_NAV,
   DEBTS_NAV,
   EXPENSES_NAV,
+  GOALS_NAV,
   HOME_NAV,
   INCOME_NAV,
   isActivePath,
   NOTIFICATIONS_NAV,
   PROFILE_NAV,
+  RATES_NAV,
   REPORTS_NAV,
   TRANSACTIONS_NAV,
   type NavItem,
@@ -25,7 +27,17 @@ import { useEntrySheets } from "@/components/providers/entry-sheets";
 import { useUnread } from "@/components/providers/unread";
 import { cn } from "@/lib/utils";
 
-const MORE_ROUTES = [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV, NOTIFICATIONS_NAV, PROFILE_NAV, ADMIN_NAV];
+const MORE_ROUTES = [
+  EXPENSES_NAV,
+  INCOME_NAV,
+  DEBTS_NAV,
+  BUDGETS_NAV,
+  GOALS_NAV,
+  RATES_NAV,
+  NOTIFICATIONS_NAV,
+  PROFILE_NAV,
+  ADMIN_NAV,
+];
 
 function TabShell({ active, children }: { active: boolean; children: React.ReactNode }) {
   return (

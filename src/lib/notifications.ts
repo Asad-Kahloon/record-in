@@ -56,11 +56,26 @@ export function describeNotification(item: NotificationItem, money: MoneyFormatt
     case "debt_settled":
       return {
         tone: "debt",
-        title: borrowed ? `${who} paid back a debt` : `${who} got money back`,
+        title: borrowed ? `${who} paid back a debt in full` : `${who} got all their money back`,
         detail: join(amount, borrowed ? `to ${label}` : `from ${label}`),
       };
     case "debt_reopened":
       return { tone: "debt", title: `${who} marked a debt as pending again`, detail: join(amount, label) };
+    case "debt_payment":
+    case "debt_payment_undone": {
+      const left =
+        item.payload.remaining !== undefined && item.payload.remaining !== null
+          ? `${money(Number(item.payload.remaining), { currency: item.payload.remaining_currency ?? currency })} left`
+          : null;
+      if (item.type === "debt_payment_undone") {
+        return { tone: "debt", title: `${who} undid a repayment`, detail: join(amount, label, left) };
+      }
+      return {
+        tone: "debt",
+        title: borrowed ? `${who} paid part of a debt back` : `${who} got some money back`,
+        detail: join(amount, borrowed ? `to ${label}` : `from ${label}`, left),
+      };
+    }
     case "goal_due":
       return {
         tone: "goal",

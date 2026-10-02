@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validation";
 
 interface ExportRow {
-  kind: "expense" | "income" | "borrowed" | "lent";
+  kind: "expense" | "income" | "borrowed" | "lent" | "paid_back" | "received_back" | "saving" | "saving_returned";
   user_name: string;
   user_email: string;
   entry_date: string;

@@ -262,7 +262,19 @@ export const getAccount = cache(
 
 export const getDebts = cache(async (userId: string | null): Promise<Debt[]> => {
   const rows = await rpc<Debt[]>("list_debts", { p_user_id: userId });
-  return (rows ?? []).map(withMoney);
+  return (rows ?? []).map((row) => ({
+    ...withMoney(row),
+    paid: num(row.paid),
+    remaining: num(row.remaining),
+    open_base: num(row.open_base),
+    payments: (row.payments ?? []).map((p) => ({
+      ...p,
+      amount: num(p.amount),
+      rate: num(p.rate) || 1,
+      covered: num(p.covered),
+      base_amount: num(p.base_amount),
+    })),
+  }));
 });
 
 export const getDebtSummary = cache(async (userId: string | null): Promise<DebtSummary> => {

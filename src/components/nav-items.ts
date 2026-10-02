@@ -1,6 +1,7 @@
 import {
   ArrowLeftRightIcon,
   BellIcon,
+  ChartCandlestickIcon,
   ChartColumnIcon,
   HandCoinsIcon,
   HouseIcon,
@@ -47,6 +48,13 @@ export const GOALS_NAV: NavItem = {
   description: "Saving for what's next",
 };
 export const REPORTS_NAV: NavItem = { title: "Reports", href: "/reports", icon: ChartColumnIcon, description: "Month & overall" };
+export const RATES_NAV: NavItem = {
+  title: "Exchange rates",
+  short: "Rates",
+  href: "/rates",
+  icon: ChartCandlestickIcon,
+  description: "Live currency rates",
+};
 export const NOTIFICATIONS_NAV: NavItem = { title: "Notifications", href: "/notifications", icon: BellIcon, description: "Account activity" };
 export const PROFILE_NAV: NavItem = { title: "Profile", href: "/profile", icon: UserRoundIcon, description: "Account & currency" };
 export const ADMIN_NAV: NavItem = { title: "All accounts", href: "/admin", icon: ShieldCheckIcon, description: "Super admin" };
@@ -54,7 +62,7 @@ export const ADMIN_NAV: NavItem = { title: "All accounts", href: "/admin", icon:
 export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "Overview", items: [HOME_NAV, TRANSACTIONS_NAV] },
   { label: "Money", items: [EXPENSES_NAV, INCOME_NAV, DEBTS_NAV, BUDGETS_NAV, GOALS_NAV] },
-  { label: "Insights", items: [REPORTS_NAV] },
+  { label: "Insights", items: [REPORTS_NAV, RATES_NAV] },
 ];
 
 const ALL_NAV = [...NAV_GROUPS.flatMap((g) => g.items), NOTIFICATIONS_NAV, PROFILE_NAV, ADMIN_NAV];

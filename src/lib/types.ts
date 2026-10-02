@@ -56,6 +56,25 @@ export interface Income extends Money {
   can_edit: boolean;
 }
 
+/** Money handed back on a debt — all of it, or a part. */
+export interface DebtPayment {
+  id: string;
+  /** What actually changed hands. */
+  amount: number;
+  currency: string;
+  /** Turns `amount` into the debt's currency (1 when they match). */
+  rate: number;
+  /** How much of the debt this cleared, in the debt's currency. */
+  covered: number;
+  /** Its share of the debt in the main currency. */
+  base_amount: number;
+  paid_on: string;
+  note: string | null;
+  created_at: string;
+  editable_until: string;
+  can_undo: boolean;
+}
+
 export interface Debt extends Money {
   id: string;
   user_id: string;
@@ -64,12 +83,20 @@ export interface Debt extends Money {
   note: string | null;
   occurred_on: string;
   due_on: string | null;
+  /** Set once everything has been handed back. */
   settled_on: string | null;
   created_at: string;
   updated_at: string;
   editable_until: string;
   can_edit: boolean;
   is_owner: boolean;
+  /** Handed back so far / still owed, in the debt's currency. */
+  paid: number;
+  remaining: number;
+  /** Still owed, in the main currency. */
+  open_base: number;
+  /** Newest first. Empty for debts settled before part repayments existed. */
+  payments: DebtPayment[];
 }
 
 export interface DebtSummary {
@@ -81,6 +108,16 @@ export interface DebtSummary {
   lent_settled: number;
   settled_count: number;
   overdue_count: number;
+}
+
+/** Exchange rates as one consistent snapshot. */
+export interface RatesSnapshot {
+  /** Units of each supported currency per 1 USD. */
+  rates: Record<string, number>;
+  /** "live" refreshes about every minute; "daily" is the once-a-day fallback. */
+  kind: "live" | "daily";
+  /** When the provider produced these numbers (ms since epoch). */
+  updatedAt: number;
 }
 
 /** Monthly spending limit in the main currency. category null = overall budget. */
@@ -230,6 +267,8 @@ export type NotificationType =
   | "debt_deleted"
   | "debt_settled"
   | "debt_reopened"
+  | "debt_payment"
+  | "debt_payment_undone"
   | "goal_due"
   | "goal_missed"
   | "goal_saved"
@@ -254,6 +293,9 @@ export interface NotificationItem {
     goal_id?: string;
     cadence?: GoalCadence;
     missed_amount?: number;
+    /** Still owed after a repayment, in remaining_currency. */
+    remaining?: number;
+    remaining_currency?: string;
   };
   actor_id: string | null;
   actor_name: string;

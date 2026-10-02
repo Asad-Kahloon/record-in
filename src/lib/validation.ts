@@ -77,6 +77,14 @@ export const settleInput = z.object({
   settledOn: dateSchema.optional(),
 });
 
+export const debtPaymentInput = z.object({
+  debtId: z.uuid("Invalid entry"),
+  amount: amountSchema,
+  currency: currencySchema,
+  paidOn: dateSchema,
+  note: z.string().trim().max(200, "Keep the note under 200 characters").optional().default(""),
+});
+
 export const idSchema = z.uuid("Invalid id");
 
 export const emailSchema = z
