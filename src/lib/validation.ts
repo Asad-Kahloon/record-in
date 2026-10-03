@@ -165,7 +165,7 @@ export const budgetInput = z.object({
   amount: z
     .string({ error: "Enter an amount" })
     .trim()
-    .regex(/^d{1,12}(.d{1,2})?$/, "Enter a valid amount (up to 2 decimals)")
+    .regex(/^\d{1,12}(\.\d{1,2})?$/, "Enter a valid amount (up to 2 decimals)")
     .transform(Number)
     .refine((value) => value > 0, "Budget must be greater than zero"),
 });
