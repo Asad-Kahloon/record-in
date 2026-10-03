@@ -3,11 +3,14 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
-// The app is dark-only, so the toaster doesn't need a theme provider.
+import { useTheme } from "@/components/providers/theme"
+
+// Follows the app's own light / dark theme.
 const Toaster = ({ ...props }: ToasterProps) => {
+  const theme = useTheme()
   return (
     <Sonner
-      theme="dark"
+      theme={theme}
       className="toaster group"
       icons={{
         success: (

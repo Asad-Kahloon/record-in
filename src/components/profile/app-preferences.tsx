@@ -1,15 +1,19 @@
 "use client";
 
-import { CircleQuestionMarkIcon, EyeOffIcon, SlidersHorizontalIcon } from "lucide-react";
+import { CircleQuestionMarkIcon, EyeOffIcon, MoonIcon, SlidersHorizontalIcon, SunIcon, SunMoonIcon } from "lucide-react";
 
 import { usePrivacy } from "@/components/providers/privacy";
+import { useThemeControl } from "@/components/providers/theme";
 import { useTour } from "@/components/tour/tour-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { isTheme } from "@/lib/theme";
 
 export function AppPreferences() {
   const { start } = useTour();
   const { hidden, toggle } = usePrivacy();
+  const { theme, choose } = useThemeControl();
 
   return (
     <Card>
@@ -18,9 +22,42 @@ export function AppPreferences() {
           <SlidersHorizontalIcon className="size-4 text-muted-foreground" />
           App
         </CardTitle>
-        <CardDescription>Tour and privacy settings.</CardDescription>
+        <CardDescription>Appearance, tour and privacy settings.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-muted/40 p-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/12 text-brand">
+            <SunMoonIcon className="size-4.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Appearance</p>
+            <p className="text-xs text-muted-foreground">Saved to your account.</p>
+          </div>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={theme}
+            onValueChange={(next) => isTheme(next) && choose(next)}
+            aria-label="Theme"
+          >
+            {(
+              [
+                { value: "light", label: "Light", icon: SunIcon },
+                { value: "dark", label: "Dark", icon: MoonIcon },
+              ] as const
+            ).map((option) => (
+              <ToggleGroupItem
+                key={option.value}
+                value={option.value}
+                className="gap-1.5 px-3 data-[state=on]:border-brand/60 data-[state=on]:bg-brand/12 data-[state=on]:text-brand"
+              >
+                <option.icon />
+                {option.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
         <div className="flex items-center gap-3 rounded-xl bg-muted/40 p-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/12 text-brand">
             <CircleQuestionMarkIcon className="size-4.5" />

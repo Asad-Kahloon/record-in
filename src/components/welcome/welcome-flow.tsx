@@ -1,11 +1,17 @@
 "use client";
 
 import { ArrowLeftRightIcon, ArrowRightIcon, HandCoinsIcon, TargetIcon, WalletIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
+import { toast } from "sonner";
 
+import { completeWelcomeAction } from "@/app/actions/account";
+import { useThemeControl } from "@/components/providers/theme";
 import { CurrencyPicker } from "@/components/welcome/currency-picker";
+import { ThemePicker } from "@/components/welcome/theme-picker";
 import { Button } from "@/components/ui/button";
 import { Carousel, CarouselContent, CarouselItem, type CarouselApi } from "@/components/ui/carousel";
+import { Spinner } from "@/components/ui/spinner";
+import { isSupportedCurrency } from "@/lib/currencies";
 import { cn } from "@/lib/utils";
 
 const SLIDES = [
@@ -36,7 +42,11 @@ const SLIDES = [
 ];
 
 export function WelcomeFlow({ name, suggested, locale }: { name: string; suggested: string; locale: string }) {
-  const [step, setStep] = useState<"intro" | "currency">("intro");
+  const [step, setStep] = useState<"intro" | "currency" | "theme">("intro");
+  const [currency, setCurrency] = useState(isSupportedCurrency(suggested) ? suggested : "PKR");
+  // Picking a theme here previews it right away; it is saved with the currency at the end.
+  const { theme, choose } = useThemeControl();
+  const [pending, startTransition] = useTransition();
   const [api, setApi] = useState<CarouselApi>();
   const [index, setIndex] = useState(0);
 
@@ -52,17 +62,50 @@ export function WelcomeFlow({ name, suggested, locale }: { name: string; suggest
 
   const last = index === SLIDES.length - 1;
 
+  const finish = () =>
+    startTransition(async () => {
+      // Saves the theme and the main currency, then lands on Home.
+      const result = await completeWelcomeAction(currency, theme);
+      if (result && !result.ok) toast.error(result.error);
+    });
+
+  if (step === "theme") {
+    return (
+      <div className="space-y-8 animate-in fade-in-0 slide-in-from-right-4">
+        <div className="space-y-3 text-center">
+          <p className="text-sm font-semibold text-brand">Step 2 of 2</p>
+          <h1 className="text-3xl font-semibold tracking-tight">Light or dark?</h1>
+          <p className="text-balance text-muted-foreground">
+            Pick how RecordIn looks. It&apos;s saved to your account, and you can switch any time with the sun and moon
+            button at the top.
+          </p>
+        </div>
+        <ThemePicker value={theme} onChange={choose} />
+        <div className="flex flex-col gap-2">
+          <Button className="h-12 rounded-xl text-base" onClick={finish} disabled={pending}>
+            {pending ? <Spinner /> : null}
+            Start using RecordIn
+            <ArrowRightIcon />
+          </Button>
+          <Button variant="ghost" className="text-muted-foreground" onClick={() => setStep("currency")} disabled={pending}>
+            Back to currency
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (step === "currency") {
     return (
       <div className="space-y-8 animate-in fade-in-0 slide-in-from-right-4">
         <div className="space-y-3 text-center">
-          <p className="text-sm font-semibold text-brand">Last step</p>
+          <p className="text-sm font-semibold text-brand">Step 1 of 2</p>
           <h1 className="text-3xl font-semibold tracking-tight">Pick your main currency</h1>
           <p className="text-balance text-muted-foreground">
             Every total is shown in it. You can still add money in any currency, and change this later in your profile.
           </p>
         </div>
-        <CurrencyPicker suggested={suggested} locale={locale} />
+        <CurrencyPicker value={currency} onChange={setCurrency} onContinue={() => setStep("theme")} locale={locale} />
         <Button variant="ghost" className="w-full text-muted-foreground" onClick={() => setStep("intro")}>
           Back to intro
         </Button>

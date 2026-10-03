@@ -8,6 +8,7 @@ import { isSupportedCurrency } from "@/lib/currencies";
 import { friendlyDbError } from "@/lib/errors";
 import { getRate, getRatesInto } from "@/lib/rates";
 import { createClient } from "@/lib/supabase/server";
+import { isTheme } from "@/lib/theme";
 import type { ActionResult, FormState, NotificationItem } from "@/lib/types";
 import { formString, fullNameSchema, idSchema } from "@/lib/validation";
 
@@ -106,7 +107,35 @@ export async function setCurrencyAction(
   return { ok: true, data: null, message: `Main currency is now ${currency}` };
 }
 
+// ─── theme ───────────────────────────────────────────────────────────────────
+
+/**
+ * Saves light or dark on the account. The screen has already switched and the
+ * browser has set this device's cookie, so nothing here re-renders the page.
+ */
+export async function setThemeAction(theme: string): Promise<ActionResult> {
+  if (!isTheme(theme)) return { ok: false, error: "Choose light or dark." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_my_theme", { p_theme: theme });
+  if (error) return { ok: false, error: friendlyDbError(error, "Couldn't save your theme. Please try again.") };
+
+  return { ok: true, data: null };
+}
+
 // ─── onboarding ──────────────────────────────────────────────────────────────
+
+/** First sign-in: saves the chosen theme, then the main currency, then lands on Home. */
+export async function completeWelcomeAction(currency: string, theme: string): Promise<ActionResult> {
+  if (!isTheme(theme)) return { ok: false, error: "Choose light or dark." };
+  if (!isSupportedCurrency(currency)) return { ok: false, error: "Choose a supported currency." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_my_theme", { p_theme: theme });
+  if (error) return { ok: false, error: friendlyDbError(error, "Couldn't save your theme. Please try again.") };
+
+  return setCurrencyAction(currency, { then: "dashboard" });
+}
 
 /** Marks the welcome tour as seen, so it doesn't auto-start again on any device. */
 export async function completeOnboardingAction(): Promise<ActionResult> {

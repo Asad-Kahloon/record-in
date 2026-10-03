@@ -1,5 +1,5 @@
 -- =============================================================================
---  RECORDIN · Supabase schema  (v6 — part repayments on borrow & lend)
+--  RECORDIN · Supabase schema  (v7 — light & dark theme per account)
 --  Paste this whole file into Supabase → SQL Editor → Run.
 --
 --  Safe to run again at any time. On an existing database it upgrades in place:
@@ -82,6 +82,10 @@ alter table public.users add column if not exists currency text;
 
 -- When the welcome tour was finished. NULL shows the tour on next sign-in.
 alter table public.users add column if not exists onboarded_at timestamptz;
+
+-- Light or dark. Accounts that existed before v7 get light; new accounts choose
+-- on the welcome screen, next to their main currency.
+alter table public.users add column if not exists theme text not null default 'light';
 
 create index if not exists users_role_idx on public.users (role);
 
@@ -213,6 +217,7 @@ begin
   for c in
     select * from (values
       ('users',    'users_currency_format',      $c$check (currency is null or currency ~ '^[A-Z]{3}$')$c$),
+      ('users',    'users_theme_valid',          $c$check (theme in ('light', 'dark'))$c$),
       ('incomes',  'incomes_currency_format',    $c$check (currency ~ '^[A-Z]{3}$')$c$),
       ('incomes',  'incomes_rate_positive',      $c$check (rate > 0)$c$),
       ('incomes',  'incomes_base_amount_range',  $c$check (base_amount >= 0 and base_amount <= 999999999999.99)$c$),
@@ -1308,6 +1313,7 @@ begin
     'is_active',           v_user.is_active,
     'currency',            v_user.currency,
     'onboarded_at',        v_user.onboarded_at,
+    'theme',               v_user.theme,
     'created_at',          v_user.created_at,
     'edit_window_minutes', private.edit_window_minutes()
   );
@@ -3013,6 +3019,27 @@ begin
 end;
 $$;
 
+-- Light or dark, saved with the account so it follows the user to every device.
+-- The app switches the screen first and saves here right after.
+create or replace function public.set_my_theme(p_theme text)
+returns text
+language plpgsql volatile security definer
+set search_path = ''
+as $$
+declare
+  v_user public.users;
+begin
+  v_user := private.require_user();
+  if p_theme is null or p_theme not in ('light', 'dark') then
+    raise exception 'Choose light or dark.';
+  end if;
+  if v_user.theme is distinct from p_theme then
+    update public.users u set theme = p_theme where u.id = v_user.id;
+  end if;
+  return p_theme;
+end;
+$$;
+
 
 -- 15a. Rhythm maths. A "period" is one day, week (Monday start), month or year.
 
@@ -4089,6 +4116,7 @@ begin
     'public.set_budget(text, numeric)',
     'public.delete_budget(text)',
     'public.complete_onboarding()',
+    'public.set_my_theme(text)',
     'public.get_month_summary(date, uuid)',
     'public.get_overall_summary(uuid)',
     'public.admin_overview(date)',

@@ -1,36 +1,33 @@
 "use client";
 
 import { ArrowRightIcon } from "lucide-react";
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
 
-import { setCurrencyAction } from "@/app/actions/account";
 import { CurrencySelect } from "@/components/currency-select";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { CURRENCIES, isSupportedCurrency, POPULAR_CURRENCIES } from "@/lib/currencies";
+import { CURRENCIES, POPULAR_CURRENCIES } from "@/lib/currencies";
 import { currencySymbol } from "@/lib/format";
 
 const popular = CURRENCIES.filter((c) => POPULAR_CURRENCIES.includes(c.code));
 
-export function CurrencyPicker({ suggested, locale }: { suggested: string; locale: string }) {
-  const [value, setValue] = useState(isSupportedCurrency(suggested) ? suggested : "PKR");
-  const [pending, startTransition] = useTransition();
-
-  const submit = () =>
-    startTransition(async () => {
-      // Redirects to the dashboard on success.
-      const result = await setCurrencyAction(value, { then: "dashboard" });
-      if (result && !result.ok) toast.error(result.error);
-    });
-
+/** Main-currency step of the welcome flow. The flow saves it together with the theme. */
+export function CurrencyPicker({
+  value,
+  onChange,
+  onContinue,
+  locale,
+}: {
+  value: string;
+  onChange: (currency: string) => void;
+  onContinue: () => void;
+  locale: string;
+}) {
   return (
     <div className="space-y-6">
       <ToggleGroup
         type="single"
         value={POPULAR_CURRENCIES.includes(value) ? value : ""}
-        onValueChange={(next) => next && setValue(next)}
+        onValueChange={(next) => next && onChange(next)}
         spacing={2}
         aria-label="Popular currencies"
         className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3"
@@ -50,11 +47,10 @@ export function CurrencyPicker({ suggested, locale }: { suggested: string; local
 
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">Or pick another currency</p>
-        <CurrencySelect value={value} onValueChange={setValue} ariaLabel="All currencies" />
+        <CurrencySelect value={value} onValueChange={onChange} ariaLabel="All currencies" />
       </div>
 
-      <Button className="h-12 w-full rounded-xl text-base" onClick={submit} disabled={pending}>
-        {pending ? <Spinner /> : null}
+      <Button className="h-12 w-full rounded-xl text-base" onClick={onContinue}>
         Continue with {value}
         <ArrowRightIcon />
       </Button>

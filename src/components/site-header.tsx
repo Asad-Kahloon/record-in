@@ -8,6 +8,7 @@ import { pageTitle, type ShellUser } from "@/components/nav-items";
 import { NotificationBell } from "@/components/notification-bell";
 import { useEntrySheets } from "@/components/providers/entry-sheets";
 import { PrivacyToggle } from "@/components/providers/privacy";
+import { ThemeToggle } from "@/components/providers/theme";
 import { useTour } from "@/components/tour/tour-provider";
 import { UserAvatar } from "@/components/user-avatar";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ export function SiteHeader({ user }: { user: ShellUser }) {
             <CircleQuestionMarkIcon />
           </Button>
           <PrivacyToggle />
+          <ThemeToggle />
           <NotificationBell />
           <Button onClick={openQuickAdd} className="ml-1.5 hidden rounded-full px-4 md:inline-flex" data-tour="add">
             <PlusIcon />

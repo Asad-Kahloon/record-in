@@ -2,6 +2,7 @@ import { ShieldCheckIcon } from "lucide-react";
 import Link from "next/link";
 
 import { Brand } from "@/components/brand";
+import { ThemeToggle } from "@/components/providers/theme";
 import { categoryIcon } from "@/lib/categories";
 import { getAppConfig } from "@/lib/env";
 import { formatMoney } from "@/lib/format";
@@ -11,10 +12,12 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
       <div className="flex flex-col gap-4 bg-app-glow px-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] pb-[calc(env(safe-area-inset-bottom)+1.5rem)] md:px-10">
-        <div className="flex justify-center md:justify-start">
+        <div className="relative flex items-center justify-center md:justify-between">
           <Link href="/login" aria-label="Home">
             <Brand />
           </Link>
+          {/* Signed out: changes this device only. */}
+          <ThemeToggle className="absolute right-0 md:static" />
         </div>
         <div className="flex flex-1 items-center justify-center py-6">
           <div className="w-full max-w-sm">{children}</div>
@@ -44,11 +47,11 @@ function AuthShowcase() {
       <div aria-hidden className="absolute -right-24 -bottom-40 size-[28rem] rounded-full bg-income/15 blur-[120px]" />
       <div
         aria-hidden
-        className="absolute inset-0 bg-[linear-gradient(to_right,rgb(255_255_255/0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgb(255_255_255/0.03)_1px,transparent_1px)] bg-[size:44px_44px] [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_75%)]"
+        className="absolute inset-0 bg-[linear-gradient(to_right,rgb(128_128_140/0.08)_1px,transparent_1px),linear-gradient(to_bottom,rgb(128_128_140/0.08)_1px,transparent_1px)] bg-[size:44px_44px] [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_75%)]"
       />
 
       <div className="relative w-full max-w-md space-y-5 px-10" aria-hidden>
-        <div className="rounded-3xl border border-white/10 bg-card/70 p-6 shadow-2xl backdrop-blur-xl">
+        <div className="rounded-3xl border border-foreground/10 bg-card/70 p-6 shadow-2xl backdrop-blur-xl">
           <p className="text-sm text-muted-foreground">Left to spend this month</p>
           <p className="mt-2 text-5xl font-semibold tracking-tight">{money(104350)}</p>
           <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-brand/15">
@@ -72,7 +75,7 @@ function AuthShowcase() {
           </div>
         </div>
 
-        <div className="ml-10 space-y-3 rounded-3xl border border-white/10 bg-card/60 p-5 shadow-2xl backdrop-blur-xl">
+        <div className="ml-10 space-y-3 rounded-3xl border border-foreground/10 bg-card/60 p-5 shadow-2xl backdrop-blur-xl">
           {rows.map((row) => {
             const Icon = categoryIcon(row.slug);
             return (

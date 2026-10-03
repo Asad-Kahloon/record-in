@@ -13,6 +13,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Brand } from "@/components/brand";
+import { ThemeToggle } from "@/components/providers/theme";
 import { Button } from "@/components/ui/button";
 import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE } from "@/lib/constants";
 import { getClaims } from "@/lib/data";
@@ -65,6 +66,7 @@ export default async function LandingPage() {
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 pt-[calc(env(safe-area-inset-top)+1.25rem)] pb-4">
         <Brand />
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <Button asChild variant="ghost" size="sm">
             <Link href="/login">Sign in</Link>
           </Button>

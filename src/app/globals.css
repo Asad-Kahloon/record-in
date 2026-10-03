@@ -60,13 +60,67 @@
 }
 
 /*
- * Dark-only theme. The same tokens are declared for :root and .dark so the
- * shadcn `dark:` variants and the defaults always agree.
+ * Light is the default (:root); dark applies when <html> has the .dark class.
+ * The server renders that class from the account (or this device's cookie),
+ * so the page never flashes the wrong theme.
  *
- * Data colors come from a validated categorical palette (CVD-safe on #131316):
+ * Light text colors are darker steps of the dark palette so every one reads at
+ * 4.5:1 or better on white, the page and muted surfaces; chart colors keep 3:1.
+ */
+:root {
+  color-scheme: light;
+  --radius: 1rem;
+
+  --background: #f6f6f9;
+  --foreground: #16151d;
+  --card: #ffffff;
+  --card-foreground: #16151d;
+  --popover: #ffffff;
+  --popover-foreground: #16151d;
+
+  --brand: #5b4fd6;
+  --brand-foreground: #ffffff;
+  --primary: #5b4fd6;
+  --primary-foreground: #ffffff;
+
+  --secondary: #eeedf3;
+  --secondary-foreground: #16151d;
+  --muted: #efeef4;
+  --muted-foreground: #5d5c6a;
+  --accent: #e9e8f0;
+  --accent-foreground: #16151d;
+  --destructive: #cf2d34;
+
+  --border: rgb(22 21 40 / 0.1);
+  --input: rgb(22 21 40 / 0.16);
+  --ring: #5b4fd6;
+
+  --income: #0d7a55;
+  --expense: #b5440f;
+  --positive: #0b7a2e;
+  --warning: #8f5d00;
+  --critical: #c4302f;
+
+  --chart-1: #199e70;
+  --chart-2: #d95926;
+  --chart-3: #3987e5;
+  --chart-4: #b07300;
+  --chart-5: #d55181;
+
+  --sidebar: #fbfbfd;
+  --sidebar-foreground: #16151d;
+  --sidebar-primary: #5b4fd6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ececf2;
+  --sidebar-accent-foreground: #16151d;
+  --sidebar-border: rgb(22 21 40 / 0.08);
+  --sidebar-ring: #5b4fd6;
+}
+
+/*
+ * Dark. Data colors come from a validated categorical palette (CVD-safe on #131316):
  *   income  #199e70 (aqua)   spent  #d95926 (orange)   accent  #9085e9 (violet)
  */
-:root,
 .dark {
   color-scheme: dark;
   --radius: 1rem;
@@ -132,8 +186,9 @@
   ::selection {
     background: color-mix(in oklab, var(--brand) 35%, transparent);
   }
-  /* Native date pickers: always a white calendar icon on the dark UI.
-     (color-scheme: dark already lightens the icon, so it must not be inverted.) */
+  /* Native date pickers: the same calendar icon in both themes — dark ink on
+     light, white on dark. (color-scheme already tints the native icon, so it
+     is replaced rather than inverted.) */
   input[type="date"]::-webkit-calendar-picker-indicator,
   input[type="month"]::-webkit-calendar-picker-indicator {
     cursor: pointer;
@@ -141,10 +196,14 @@
     opacity: 0.8;
     width: 18px;
     height: 18px;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2316151d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E");
     background-position: center;
     background-repeat: no-repeat;
     background-size: 18px 18px;
+  }
+  .dark input[type="date"]::-webkit-calendar-picker-indicator,
+  .dark input[type="month"]::-webkit-calendar-picker-indicator {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cpath d='M16 2v4M8 2v4M3 10h18'/%3E%3C/svg%3E");
   }
   input[type="date"]::-webkit-calendar-picker-indicator:hover,
   input[type="month"]::-webkit-calendar-picker-indicator:hover {

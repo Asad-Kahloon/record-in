@@ -1,3 +1,5 @@
+import type { Theme } from "@/lib/theme";
+
 export type Role = "superadmin" | "user";
 
 export type PaymentMethod = "cash" | "card" | "bank" | "wallet" | "other";
@@ -18,6 +20,8 @@ export interface Profile {
   currency: string | null;
   /** When the welcome tour was finished; null shows it on next visit. */
   onboarded_at: string | null;
+  /** Light or dark, saved with the account (light for accounts from before themes existed). */
+  theme: Theme;
   created_at: string;
   edit_window_minutes: number;
 }

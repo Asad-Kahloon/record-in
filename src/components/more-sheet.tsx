@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRightIcon, CircleQuestionMarkIcon, EyeIcon, EyeOffIcon, LogOutIcon } from "lucide-react";
+import { ChevronRightIcon, CircleQuestionMarkIcon, EyeIcon, EyeOffIcon, LogOutIcon, MoonIcon, SunIcon } from "lucide-react";
 import Link from "next/link";
 
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/components/nav-items";
 import { useSignOut } from "@/components/nav-user";
 import { usePrivacy } from "@/components/providers/privacy";
+import { useThemeControl } from "@/components/providers/theme";
 import { useUnread } from "@/components/providers/unread";
 import { useTour } from "@/components/tour/tour-provider";
 import { InstallButton } from "@/components/pwa/install-card";
@@ -37,6 +38,7 @@ export function MoreSheet({
 }) {
   const { start } = useTour();
   const { hidden, toggle } = usePrivacy();
+  const { theme, toggle: toggleTheme } = useThemeControl();
   const { pending, signOut } = useSignOut();
   const { count } = useUnread();
   const close = () => onOpenChange(false);
@@ -104,6 +106,10 @@ export function MoreSheet({
             <Button variant="outline" className="h-11 justify-start rounded-xl" onClick={toggle}>
               {hidden ? <EyeIcon /> : <EyeOffIcon />}
               {hidden ? "Show amounts" : "Hide amounts"}
+            </Button>
+            <Button variant="outline" className="h-11 justify-start rounded-xl" onClick={toggleTheme}>
+              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+              {theme === "dark" ? "Light mode" : "Dark mode"}
             </Button>
             <Button variant="destructive" className="h-11 justify-start rounded-xl" onClick={signOut} disabled={pending}>
               <LogOutIcon />
