@@ -5,6 +5,7 @@ const TONES = {
   income: "bg-income",
   expense: "bg-expense",
   brand: "bg-brand",
+  neutral: "bg-muted-foreground/60",
 } as const;
 
 export function MiniStat({

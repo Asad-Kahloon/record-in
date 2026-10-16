@@ -14,12 +14,13 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDayHeading } from "@/lib/dates";
 import { transactionTotals, type Transaction } from "@/lib/transactions";
 
-type Filter = "all" | "in" | "out" | "debt";
+// Income, expenses and borrow & lend are separate kinds of record, never mixed.
+type Filter = "all" | Transaction["kind"];
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "in", label: "Money in" },
-  { value: "out", label: "Money out" },
+  { value: "income", label: "Income" },
+  { value: "expense", label: "Expenses" },
   { value: "debt", label: "Borrow & lend" },
 ];
 
@@ -41,9 +42,7 @@ export function TransactionFeed({
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const visible = transactions.filter((tx) => {
-      if (filter === "in" && tx.flow !== "in") return false;
-      if (filter === "out" && tx.flow !== "out") return false;
-      if (filter === "debt" && tx.kind !== "debt") return false;
+      if (filter !== "all" && tx.kind !== filter) return false;
       return !q || tx.title.toLowerCase().includes(q) || transactionSubtitle(tx).toLowerCase().includes(q);
     });
     const out: { date: string; items: Transaction[] }[] = [];
@@ -132,15 +131,20 @@ export function TransactionFeed({
         </Empty>
       ) : (
         groups.map((group) => {
-          const { net } = transactionTotals(group.items);
+          // A day's net is income minus expenses; borrow & lend only has its own net under its filter.
+          const totals = transactionTotals(group.items);
+          const net =
+            filter === "debt" ? totals.debtNet : group.items.some((tx) => tx.kind !== "debt") ? totals.net : null;
           return (
             <section key={group.date} className="flex flex-col gap-2">
               <div className="flex items-baseline justify-between px-1 text-sm">
                 <h2 className="font-semibold">{formatDayHeading(group.date, today, locale)}</h2>
-                <span className="money text-muted-foreground tabular-nums">
-                  {net >= 0 ? "+" : "−"}
-                  {money(Math.abs(net))}
-                </span>
+                {net !== null ? (
+                  <span className="money text-muted-foreground tabular-nums">
+                    {net >= 0 ? "+" : "−"}
+                    {money(Math.abs(net))}
+                  </span>
+                ) : null}
               </div>
               <ItemGroup className="gap-0.5 rounded-3xl bg-card p-1.5 ring-1 ring-foreground/10">
                 {group.items.map((tx) => (

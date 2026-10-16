@@ -131,12 +131,21 @@ export function buildTransactions({
   return list.sort((a, b) => (a.date === b.date ? b.created_at.localeCompare(a.created_at) : b.date.localeCompare(a.date)));
 }
 
+/**
+ * Totals for a list of transactions. Income and expenses are your own money
+ * coming in and going out. Borrow & lend is kept apart: lent money is expected
+ * back and borrowed money is owed, so it never counts as earning or spending.
+ */
 export function transactionTotals(list: Transaction[]) {
-  let moneyIn = 0;
-  let moneyOut = 0;
+  let income = 0;
+  let expenses = 0;
+  let debtIn = 0;
+  let debtOut = 0;
   for (const t of list) {
-    if (t.flow === "in") moneyIn += t.base_amount;
-    else moneyOut += t.base_amount;
+    if (t.kind === "income") income += t.base_amount;
+    else if (t.kind === "expense") expenses += t.base_amount;
+    else if (t.flow === "in") debtIn += t.base_amount;
+    else debtOut += t.base_amount;
   }
-  return { moneyIn, moneyOut, net: moneyIn - moneyOut };
+  return { income, expenses, net: income - expenses, debtIn, debtOut, debtNet: debtIn - debtOut };
 }

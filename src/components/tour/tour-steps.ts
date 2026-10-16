@@ -42,7 +42,7 @@ export const TOUR_STEPS: TourStep[] = [
     id: "transactions",
     target: '[data-tour="transactions"]',
     title: "Every transaction",
-    body: "Money in and money out in one feed. Tap an entry to open it — you can edit or delete it for 30 minutes after adding.",
+    body: "Income, expenses and borrow & lend in one feed, each with its own total. Tap an entry to open it — you can edit or delete it for 30 minutes after adding.",
   },
   {
     id: "add",
