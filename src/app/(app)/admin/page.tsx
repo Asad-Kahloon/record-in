@@ -3,10 +3,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { UserActions } from "@/components/admin/user-actions";
-import { DownloadButton } from "@/components/download-button";
 import { MiniStat } from "@/components/mini-stat";
 import { MonthSwitcher } from "@/components/month-switcher";
 import { PageHeader } from "@/components/page-header";
+import { ReportButton } from "@/components/reports/report-dialog";
 import { UserAvatar } from "@/components/user-avatar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -57,8 +57,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
         actions={
           <>
             <MonthSwitcher month={month} min={bounds.min} max={bounds.current} className="w-full md:w-auto" />
-            <DownloadButton href={`/api/export?scope=all&month=${month}`} label="Everyone · month" className="flex-1 md:flex-none" />
-            <DownloadButton href="/api/export?scope=all" label="Everyone · all-time" className="flex-1 md:flex-none" />
+            <ReportButton scope="all" month={month} label="Everyone’s report" className="flex-1 md:flex-none" />
           </>
         }
       />

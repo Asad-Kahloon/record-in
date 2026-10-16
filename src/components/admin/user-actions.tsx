@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { setUserActiveAction } from "@/app/actions/account";
+import { ReportSheet } from "@/components/reports/report-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,9 +39,9 @@ export function UserActions({
   isSelf: boolean;
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const canToggle = !isSelf && user.role !== "superadmin";
-  const exportBase = isSelf ? "/api/export?scope=me" : `/api/export?scope=user&user=${user.id}`;
 
   const toggle = () =>
     startTransition(async () => {
@@ -70,17 +71,9 @@ export function UserActions({
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem asChild>
-            <a href={`${exportBase}&month=${month}`} download>
-              <DownloadIcon />
-              Download this month
-            </a>
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <a href={exportBase} download>
-              <DownloadIcon />
-              Download all-time
-            </a>
+          <DropdownMenuItem onSelect={() => setReportOpen(true)}>
+            <DownloadIcon />
+            Download report…
           </DropdownMenuItem>
           {canToggle ? (
             <>
@@ -96,6 +89,14 @@ export function UserActions({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ReportSheet
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        scope={isSelf ? "me" : "user"}
+        userId={isSelf ? undefined : user.id}
+        month={month}
+      />
 
       <AlertDialog open={confirmOpen} onOpenChange={(open) => !pending && setConfirmOpen(open)}>
         <AlertDialogContent size="sm">

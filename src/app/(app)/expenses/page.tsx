@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
-import { DownloadButton } from "@/components/download-button";
 import { AddExpenseButton } from "@/components/entry-buttons";
 import { ExpenseList } from "@/components/expenses/expense-list";
 import { MiniStat } from "@/components/mini-stat";
 import { MonthSwitcher } from "@/components/month-switcher";
 import { PageHeader } from "@/components/page-header";
+import { ReportButton } from "@/components/reports/report-dialog";
 import { getExpenses, requireActiveProfile } from "@/lib/data";
 import { daysInMonth, formatMonth, monthBounds, resolveMonth } from "@/lib/dates";
 import { getAppConfig } from "@/lib/env";
@@ -35,7 +35,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Sea
           <>
             <MonthSwitcher month={month} min={bounds.min} max={bounds.current} className="w-full md:w-auto" />
             <AddExpenseButton className="hidden md:inline-flex" />
-            <DownloadButton href={`/api/export?scope=me&month=${month}`} label="CSV" className="hidden md:inline-flex" />
+            <ReportButton month={month} label="Report" className="w-full md:w-auto" />
           </>
         }
       />

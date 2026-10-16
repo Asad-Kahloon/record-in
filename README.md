@@ -11,7 +11,7 @@ Built with Next.js 16, shadcn/ui, Tailwind CSS 4 and Supabase. Works on phones (
 | | |
 |---|---|
 | **Home** | Banking-style home: a balance card, quick actions, budget meter, spending insights, recent transactions, borrow & lend and daily spending |
-| **Transactions** | One feed of every movement of money — expenses, income, borrowed, lent and settled — with Money in / Money out / Borrow & lend filters, search and a statement download |
+| **Transactions** | One feed of every movement of money — expenses, income, borrowed, lent and settled — with Income / Expenses / Borrow & lend filters and totals, search and a statement download |
 | **Budgets** | An overall monthly budget plus per-category limits, with "safe to spend per day" and On track / Close to limit / Over budget status |
 | **Privacy** | The eye button blurs every amount (remembered per device) |
 | **Welcome & tour** | First sign-in shows intro slides and a currency picker, then a spotlight tour of Home. Replay it any time from the ? button, the More menu or Profile |
@@ -21,7 +21,8 @@ Built with Next.js 16, shadcn/ui, Tailwind CSS 4 and Supabase. Works on phones (
 | **Expenses** | Amount, category, description, date, payment method. Search and filter by category |
 | **Edit window** | Entries can be edited or deleted for **30 minutes** after adding. After that they're locked. Users see a reminder before saving |
 | **Reports** | This-month report (daily chart, categories, highlights, payment methods) and an overall report (month-by-month, all-time categories) |
-| **Super admin** | Sees every account (read-only), downloads CSVs per person or for everyone, can deactivate an account. **Can't edit anyone else's entries** |
+| **Reports** | Every download asks first: **PDF** or **Excel**, this month or all time, and which parts to include. Summary and Income & expenses are always in; spending by category, payment methods, borrow & lend, budgets and savings aims can be left out. Both formats carry the RecordIn logo, a watermark and the contact details (asadkahloon77@gmail.com · +92 331 4163905) |
+| **Super admin** | Sees every account (read-only), downloads reports per person or for everyone, can deactivate an account. **Can't edit anyone else's entries** |
 | **Notifications** | The super admin is notified when someone adds, edits, settles or deletes an entry or joins. A toast appears right after signing in |
 | **Borrow & lend** | Record money you borrowed (you owe) or lent (you're owed), with an optional return date. Record money handed back at any time — even after the 30-minute lock — in full, half, or any amount in any currency; each repayment is kept with what is still owed, and can be undone within 30 minutes. See overdue ones |
 | **Currencies** | Every user picks a main currency on first sign-in (changeable in Profile). Any entry can be added in another currency (USD, EUR, AED…) and is converted at the live exchange rate; totals and reports are always in the main currency |
@@ -112,7 +113,7 @@ Once your 2–3 people have accounts, go to **Authentication → Sign In / Provi
 - **First-user super admin** is decided inside the sign-up trigger with an advisory lock, so two simultaneous sign-ups can't both win. The role is never read from user-supplied metadata.
 - **Abuse guards:** duplicate double-taps are skipped, and each account can add at most 150 entries per hour.
 - **Headers:** a per-request nonce-based Content-Security-Policy, HSTS, `X-Frame-Options: DENY`, no `X-Powered-By`, no production source maps, and `noindex` so search engines skip the site.
-- **Safer exports:** CSV cells that start with `=`, `+`, `-` or `@` are escaped so spreadsheets can't run them as formulas.
+- **Safer exports:** Excel reports store every typed value as plain text, never as a formula, so a description starting with `=` can't run in a spreadsheet.
 - **Open-redirect protection** on every `?next=` parameter.
 
 About "obfuscation": production builds are already minified and ship without source maps. The real protection is that the keys and database calls never reach the browser, and the database enforces every rule by itself.
@@ -134,7 +135,7 @@ src/proxy.ts                 Session refresh, route protection, CSP nonce
 src/lib/data.ts              Server-side data access (RPC calls)
 src/lib/validation.ts        Zod schemas shared by forms and server actions
 src/app/actions/             Server actions (auth, expenses, incomes, account)
-src/app/api/export/          CSV download
+src/app/api/report/          PDF / Excel report download (src/lib/reports/ builds them)
 src/app/(app)/               Dashboard, expenses, income, reports, admin, profile, notifications
 src/app/login, signup, …     Auth screens
 src/components/              App UI built on shadcn/ui (blocks: dashboard-01, login-02, signup-02)

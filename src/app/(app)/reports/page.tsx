@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
-import { DownloadButton } from "@/components/download-button";
 import { MonthSwitcher } from "@/components/month-switcher";
 import { PageHeader } from "@/components/page-header";
 import { ReportTabs } from "@/components/report-tabs";
 import { MonthReport } from "@/components/reports/month-report";
 import { OverallReport } from "@/components/reports/overall-report";
+import { ReportButton } from "@/components/reports/report-dialog";
 import { getMonthSummary, getOverallSummary, requireActiveProfile } from "@/lib/data";
 import { formatMonth, monthBounds, resolveMonth } from "@/lib/dates";
 import { getAppConfig } from "@/lib/env";
@@ -39,9 +39,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Sear
             {view === "month" ? (
               <MonthSwitcher month={month} min={bounds.min} max={bounds.current} className="w-full md:w-auto" />
             ) : null}
-            <DownloadButton
-              href={view === "month" ? `/api/export?scope=me&month=${month}` : "/api/export?scope=me"}
-              label={view === "month" ? "Download month" : "Download all"}
+            <ReportButton
+              month={month}
+              defaultPeriod={view === "month" ? "month" : "all"}
+              label="Download report"
               className="w-full md:w-auto"
             />
           </>

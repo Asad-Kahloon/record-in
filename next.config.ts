@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
   // Lets a verification build run in its own folder while the dev server is up.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
 
+  // Report files are built on the server with Node.js libraries; load them as-is
+  // rather than bundling. (@react-pdf/renderer is on Next's built-in list.)
+  serverExternalPackages: ["exceljs"],
+
   images: {
     remotePatterns: [{ protocol: "https", hostname: "lh3.googleusercontent.com" }],
   },

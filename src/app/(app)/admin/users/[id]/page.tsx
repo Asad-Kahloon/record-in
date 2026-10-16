@@ -7,13 +7,13 @@ import { CategoryBreakdown } from "@/components/charts/category-breakdown";
 import { DailySpendChart } from "@/components/charts/daily-spend-chart";
 import { BalanceHero } from "@/components/dashboard/balance-hero";
 import { DebtList } from "@/components/debts/debt-list";
-import { DownloadButton } from "@/components/download-button";
 import { ExpenseList } from "@/components/expenses/expense-list";
 import { IncomeList } from "@/components/incomes/income-list";
 import { MonthSwitcher } from "@/components/month-switcher";
 import { ReportTabs } from "@/components/report-tabs";
 import { AppConfigProvider } from "@/components/providers/app-config";
 import { OverallReport } from "@/components/reports/overall-report";
+import { ReportButton } from "@/components/reports/report-dialog";
 import { SectionCards } from "@/components/section-cards";
 import { UserAvatar } from "@/components/user-avatar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -100,13 +100,12 @@ export default async function AccountPage({ params, searchParams }: { params: Pa
             {tab !== "overall" ? (
               <MonthSwitcher month={month} min={bounds.min} max={bounds.current} className="w-full md:w-auto" />
             ) : null}
-            <DownloadButton
-              href={
-                tab === "overall"
-                  ? `/api/export?scope=user&user=${id}`
-                  : `/api/export?scope=user&user=${id}&month=${month}`
-              }
-              label={tab === "overall" ? "Download all-time" : "Download month"}
+            <ReportButton
+              scope="user"
+              userId={id}
+              month={month}
+              defaultPeriod={tab === "overall" ? "all" : "month"}
+              label="Download report"
               className="w-full md:w-auto"
             />
           </div>

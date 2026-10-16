@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { DownloadButton } from "@/components/download-button";
 import { MiniStat } from "@/components/mini-stat";
 import { MonthSwitcher } from "@/components/month-switcher";
 import { PageHeader } from "@/components/page-header";
+import { ReportButton } from "@/components/reports/report-dialog";
 import { TransactionFeed } from "@/components/transactions/transaction-feed";
 import { getDebts, getExpenses, getIncomes, requireActiveProfile } from "@/lib/data";
 import { formatMonth, monthBounds, resolveMonth } from "@/lib/dates";
@@ -34,7 +34,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
         actions={
           <>
             <MonthSwitcher month={month} min={bounds.min} max={bounds.current} className="w-full md:w-auto" />
-            <DownloadButton href={`/api/export?scope=me&month=${month}`} label="Statement" className="flex-1 md:flex-none" />
+            <ReportButton month={month} label="Statement" className="flex-1 md:flex-none" />
           </>
         }
       />
