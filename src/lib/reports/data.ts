@@ -2,7 +2,7 @@ import "server-only";
 
 import { budgetProgress, type BudgetProgress } from "@/lib/budgets";
 import { paymentMethodLabel } from "@/lib/categories";
-import { APP_NAME, APP_TAGLINE, CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
+import { APP_NAME, APP_TAGLINE, CONTACT_PHONE } from "@/lib/constants";
 import {
   getAccount,
   getBudgets,
@@ -79,7 +79,7 @@ export interface ShareRow {
 }
 
 export interface ReportData {
-  brand: { name: string; tagline: string; email: string; phone: string };
+  brand: { name: string; tagline: string; phone: string };
   title: string;
   period: string;
   /** For the file name: "2026-10" or "all-time". */
@@ -193,7 +193,7 @@ export async function buildReportData(options: {
   const savings = lines.filter((l) => l.kind === "saving" || l.kind === "saving_returned").sort(byDate);
 
   const report: ReportData = {
-    brand: { name: APP_NAME, tagline: APP_TAGLINE, email: CONTACT_EMAIL, phone: CONTACT_PHONE },
+    brand: { name: APP_NAME, tagline: APP_TAGLINE, phone: CONTACT_PHONE },
     title: month ? "Monthly report" : "All-time report",
     period: month ? formatMonth(month, config.locale) : "All time",
     periodSlug: month ?? "all-time",

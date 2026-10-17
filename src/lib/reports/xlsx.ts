@@ -42,8 +42,8 @@ function brandSheet(
       margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.6, header: 0.2, footer: 0.25 },
     },
     headerFooter: {
-      oddFooter: `&L&8${data.brand.name} · ${data.brand.email} · ${data.brand.phone}&R&8Page &P of &N`,
-      evenFooter: `&L&8${data.brand.name} · ${data.brand.email} · ${data.brand.phone}&R&8Page &P of &N`,
+      oddFooter: `&L&8${data.brand.name} · ${data.brand.phone}&R&8Page &P of &N`,
+      evenFooter: `&L&8${data.brand.name} · ${data.brand.phone}&R&8Page &P of &N`,
     },
   });
   ws.addBackgroundImage(images.mark);
@@ -52,7 +52,7 @@ function brandSheet(
   const lines: { text: string; font: Partial<ExcelJS.Font>; height: number }[] = [
     { text: data.brand.name, font: { bold: true, size: 18, color: { argb: BRAND } }, height: 24 },
     { text: `${data.brand.tagline} · ${data.title} · ${data.period}`, font: { size: 10, color: { argb: INK } }, height: 16 },
-    { text: `Contact: ${data.brand.email} · ${data.brand.phone}`, font: { size: 9, color: { argb: MUTED } }, height: 14 },
+    { text: `Contact: ${data.brand.phone}`, font: { size: 9, color: { argb: MUTED } }, height: 14 },
     {
       text: `Prepared for ${data.who}${data.whoDetail ? ` (${data.whoDetail})` : ""} · generated ${data.generatedAt}`,
       font: { size: 9, color: { argb: MUTED } },
@@ -196,7 +196,7 @@ export async function renderReportXlsx(data: ReportData): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = data.brand.name;
   wb.lastModifiedBy = data.brand.name;
-  wb.company = `${data.brand.name} · ${data.brand.email} · ${data.brand.phone}`;
+  wb.company = `${data.brand.name} · ${data.brand.phone}`;
   wb.title = `${data.brand.name} ${data.title} · ${data.period}`;
   wb.subject = `${data.title} for ${data.who}`;
   wb.created = new Date();

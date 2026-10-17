@@ -15,7 +15,8 @@ export const APP_KEYWORDS = [
 ];
 
 /** Printed on every downloaded report, for business and partnership enquiries. */
-export const CONTACT_EMAIL = "asadkahloon77@gmail.com";
+// Email is hidden for now — bring it back by restoring this line and brand.email in lib/reports.
+// export const CONTACT_EMAIL = "asadkahloon77@gmail.com";
 export const CONTACT_PHONE = "+92 331 4163905";
 
 /** Quick picks shown in the income form. */

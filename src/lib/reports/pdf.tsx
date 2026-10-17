@@ -223,7 +223,7 @@ function ReportDocument({ data }: { data: ReportData }) {
   const date = (iso: string) => safe(formatDate(iso, data.locale, { day: "numeric", month: "short", year: "numeric" }));
   const single = data.currency !== null;
   // Non-breaking spaces keep the phone number on one line.
-  const contact = `${data.brand.email}  ·  ${data.brand.phone.replace(/ /g, " ")}`;
+  const contact = data.brand.phone.replace(/ /g, "\u00a0");
 
   // Amount in the owner's main currency, with what was actually typed underneath when it differs.
   const amount = (l: ReportLine, color?: string) => (
@@ -263,7 +263,7 @@ function ReportDocument({ data }: { data: ReportData }) {
       creator={data.brand.name}
       producer={data.brand.name}
       subject={safe(`${data.title} for ${data.who}`)}
-      keywords={`${data.brand.name}, ${data.brand.email}, ${data.brand.phone}`}
+      keywords={`${data.brand.name}, ${data.brand.phone}`}
       language="en"
     >
       <Page size="A4" style={s.page} wrap>
